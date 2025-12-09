@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { Plus, Trash, Save, Search } from "lucide-react";
+import { Trash, Save, Search } from "lucide-react";
 
 // Use environment variables for API URLs in a real application
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";

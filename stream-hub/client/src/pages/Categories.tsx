@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchMovies, fetchSeries } from "../services/api";
 import { useOutletContext } from "react-router-dom";
-import { Play, Filter, ChevronDown, Star } from "lucide-react";
+import { Filter, ChevronDown, Star } from "lucide-react";
 
 // --- TMDB GENRE ID TO NAME TRANSLATOR ---
 const GENRE_MAP: Record<string, string> = {
