@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f1014;
+  --surface: #16181f;
+  --primary: #ffffff;
+}
+
+body {
+  background-color: var(--background);
+  color: white;
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; /* Makes text look thinner and sharper */
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  user-select: none; /* Prevents user from accidentally highlighting text */
+}
+
+/* --- 1. Custom Scrollbar (The "Invisible" look) --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* --- 2. Text Selection Color (Brand Touch) --- */
+::selection {
+  background: #2563eb; /* Blue highlight */
+  color: white;
+}
+
+/* --- 3. Hide Scrollbar Utility --- */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* --- 4. Text Stroke (For the Top 10 Numbers) --- */
+@layer utilities {
+  .font-outline-2 {
+    -webkit-text-stroke: 4px #555;
+    color: transparent;
+  }
+}
+
+/* --- 5. Smooth Fade In Animation --- */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
