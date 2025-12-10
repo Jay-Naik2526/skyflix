@@ -3,7 +3,6 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Save, Plus, Trash, ArrowLeft, Image as ImageIcon, Film } from "lucide-react";
 
-// Use environment variables for API URLs in a real application
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function PostEditor() {
@@ -29,11 +28,12 @@ export default function PostEditor() {
 
   const handleSave = async () => {
     try {
-      await axios.post(`${API_URL}/api/admin/post-update`, { id, type, data: post });
-      alert("Saved Successfully!");
-    } catch (error) {
+      await axios.post(`${API_URL}/api/admin/update-post`, { id, type, data: post });
+      alert("✅ Saved Successfully! (File renamed on RPMShare if title changed)");
+    } catch (error: any) {
       console.error("Failed to save:", error);
-      alert("Failed to save.");
+      const serverMsg = error.response?.data?.error || error.message;
+      alert(`❌ Failed to save: ${serverMsg}`);
     }
   };
 
@@ -42,7 +42,6 @@ export default function PostEditor() {
   };
 
   const updateEpisode = (seasonIndex: number, epIndex: number, field: string, value: any) => {
-    // FIX: IMMUTABLE UPDATE to prevent React state bugs.
     setPost((currentPost: any) => ({
       ...currentPost,
       seasons: currentPost.seasons.map((season: any, sIdx: number) => {
@@ -107,7 +106,7 @@ export default function PostEditor() {
           <h3 className="font-bold text-gray-400 mb-4 border-b border-white/10 pb-2">General Info</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Title</label>
+              <label className="block text-xs text-gray-500 mb-1">Title (Renames File on Save)</label>
               <input
                 className="w-full bg-black/30 p-2 rounded border border-white/10 focus:border-blue-500 outline-none"
                 value={post.title || post.name}
@@ -125,18 +124,18 @@ export default function PostEditor() {
             </div>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Poster Path (e.g., /abc.jpg)</label>
+            <label className="block text-xs text-gray-500 mb-1">Poster Path (URL or /path.jpg)</label>
             <div className="flex gap-2">
               <input
                 className="flex-1 bg-black/30 p-2 rounded border border-white/10 focus:border-blue-500 outline-none"
                 value={post.poster_path}
                 onChange={(e) => updateField("poster_path", e.target.value)}
               />
-              <img src={getImageUrl(post.poster_path)} className="h-10 w-8 object-cover rounded bg-gray-800" />
+              <img src={getImageUrl(post.poster_path)} className="h-10 w-8 object-cover rounded bg-gray-800" alt="Preview" />
             </div>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Backdrop Path (e.g., /xyz.jpg)</label>
+            <label className="block text-xs text-gray-500 mb-1">Backdrop Path</label>
             <input
               className="w-full bg-black/30 p-2 rounded border border-white/10 focus:border-blue-500 outline-none"
               value={post.backdrop_path}
@@ -175,6 +174,7 @@ export default function PostEditor() {
           </div>
         )}
 
+        {/* --- SERIES EDITOR (This uses the extra icons) --- */}
         {type === "Series" && post.seasons?.map((season: any, sIdx: number) => (
           <div key={sIdx} className="bg-[#16181f] p-6 rounded-xl border border-white/10 space-y-4">
             <div className="flex justify-between items-center border-b border-white/10 pb-2">

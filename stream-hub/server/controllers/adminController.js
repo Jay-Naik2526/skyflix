@@ -36,7 +36,7 @@ const renameRPMFiles = async (req, res) => {
   res.json({ message: "Batch rename complete", results });
 };
 
-// --- 2. POST MANAGEMENT (WITH PAGINATION) ---
+// --- 2. POST MANAGEMENT ---
 const getAllPosts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -49,7 +49,6 @@ const getAllPosts = async (req, res) => {
 
     let posts = [];
     
-    // Fetch Movies slice
     if (skip < totalMovies) {
         const movies = await Movie.find()
             .sort({ createdAt: -1 })
@@ -59,7 +58,6 @@ const getAllPosts = async (req, res) => {
         posts = movies.map(m => ({ ...m._doc, type: "Movie", title: m.title }));
     } 
     
-    // Fetch Series slice if needed
     if (posts.length < limit && (totalSeries > 0)) {
         const seriesSkip = Math.max(0, skip - totalMovies);
         const seriesLimit = limit - posts.length;
@@ -93,11 +91,56 @@ const getPostDetails = async (req, res) => {
   res.json(post);
 };
 
+// ✅ UPDATED: Robust Update Function
 const updatePost = async (req, res) => {
   const { id, type, data } = req.body;
   const Model = type === "Movie" ? Movie : Series;
-  await Model.findByIdAndUpdate(id, { $set: data });
-  res.json({ success: true });
+
+  try {
+    console.log(`📝 Attempting update for ${type} ID: ${id}`);
+
+    // 1. Fetch Original Doc
+    const oldDoc = await Model.findById(id);
+    if (!oldDoc) return res.status(404).json({ error: "Post not found" });
+
+    // 2. Handle RPMShare Rename
+    const newTitle = type === "Movie" ? data.title : data.name;
+    const oldTitle = type === "Movie" ? oldDoc.title : oldDoc.name;
+
+    if (type === "Movie" && newTitle && newTitle !== oldTitle && oldDoc.fileCode) {
+        console.log(`🔄 Renaming on RPMShare: ${oldTitle} -> ${newTitle}`);
+        try {
+            const apiKey = process.env.RPMSHARE_API_KEY;
+            await axios.patch(
+                `https://rpmshare.com/api/v1/video/manage/${oldDoc.fileCode}`, 
+                { name: newTitle }, 
+                { headers: { 'api-token': apiKey } }
+            );
+            console.log("✅ RPMShare Rename Success");
+        } catch (apiErr) {
+            console.error("❌ RPMShare Rename Failed:", apiErr.message);
+        }
+    }
+
+    // 3. PREPARE DATA: Remove ALL immutable system fields
+    const updateData = { ...data };
+    delete updateData._id;
+    delete updateData.createdAt;
+    delete updateData.updatedAt;
+    delete updateData.__v;
+
+    // 4. Perform Update
+    // runValidators: false is safer for admin overrides
+    await Model.findByIdAndUpdate(id, { $set: updateData }, { runValidators: false });
+    
+    console.log("✅ Database Update Success");
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error("❌ CRITICAL UPDATE ERROR:", error);
+    // Return the actual error message so the frontend can show it
+    res.status(500).json({ error: error.message });
+  }
 };
 
 const deletePost = async (req, res) => {
@@ -109,9 +152,7 @@ const deletePost = async (req, res) => {
 
 // --- 3. HOMEPAGE MANAGEMENT ---
 const getHomepageConfig = async (req, res) => {
-  // ✅ FIX: Added .populate() so the frontend receives full details, not just IDs
   let config = await Homepage.findOne().populate('bannerItems.contentId');
-  
   if (!config) {
     config = new Homepage({ bannerItems: [], categories: [] });
     await config.save();
@@ -121,10 +162,9 @@ const getHomepageConfig = async (req, res) => {
 
 const updateHomepageConfig = async (req, res) => {
   const { bannerItems, categories } = req.body;
-  // Ensure we save just the IDs to the DB
   const cleanBanner = bannerItems.filter(i => i.contentId).map(i => ({
       ...i,
-      contentId: i.contentId._id || i.contentId // Handle both populated and unpopulated objects
+      contentId: i.contentId._id || i.contentId 
   }));
   
   await Homepage.findOneAndUpdate({}, { bannerItems: cleanBanner, categories }, { upsert: true });
