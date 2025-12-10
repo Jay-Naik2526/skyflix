@@ -5,18 +5,46 @@ const Series = require("../models/Series");
 const Homepage = require("../models/Homepage");
 require("dotenv").config();
 
-// --- 1. RENAME TOOL ---
+// --- 1. RENAME TOOL (FIXED: LOOPS ALL PAGES) ---
 const getRPMFiles = async (req, res) => {
   try {
     const apiKey = process.env.RPMSHARE_API_KEY;
-    const url = `https://rpmshare.com/api/v1/video/manage?perPage=1000`;
-    const response = await axios.get(url, { headers: { 'api-token': apiKey } });
-    if (response.data?.data) {
-      res.json(response.data.data.map(f => ({ id: f.id, name: f.name })));
-    } else {
-      res.json([]);
+    let allFiles = [];
+    let page = 1;
+    let hasMore = true;
+
+    console.log("📥 Fetching file list from RPMShare...");
+
+    // Loop until we have everything
+    while (hasMore) {
+      // Request 100 items at a time (API limit is usually 100)
+      const url = `https://rpmshare.com/api/v1/video/manage?page=${page}&perPage=100&limit=100`;
+      const response = await axios.get(url, { headers: { 'api-token': apiKey } });
+      const data = response.data?.data;
+
+      if (data && Array.isArray(data) && data.length > 0) {
+        // Add this page's files to our master list
+        const simpleFiles = data.map(f => ({ id: f.id, name: f.name }));
+        allFiles = [...allFiles, ...simpleFiles];
+        
+        console.log(`   Page ${page}: Fetched ${data.length} files. (Total: ${allFiles.length})`);
+
+        // If we got less than 100, it means we reached the last page
+        if (data.length < 100) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false; // No data returned, stop loop
+      }
     }
+
+    console.log(`✅ Finished. Returning ${allFiles.length} files.`);
+    res.json(allFiles);
+
   } catch (error) {
+    console.error("❌ Error fetching files:", error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -36,7 +64,7 @@ const renameRPMFiles = async (req, res) => {
   res.json({ message: "Batch rename complete", results });
 };
 
-// --- 2. POST MANAGEMENT ---
+// --- 2. POST MANAGEMENT (WITH PAGINATION) ---
 const getAllPosts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -49,6 +77,7 @@ const getAllPosts = async (req, res) => {
 
     let posts = [];
     
+    // Fetch Movies slice
     if (skip < totalMovies) {
         const movies = await Movie.find()
             .sort({ createdAt: -1 })
@@ -58,6 +87,7 @@ const getAllPosts = async (req, res) => {
         posts = movies.map(m => ({ ...m._doc, type: "Movie", title: m.title }));
     } 
     
+    // Fetch Series slice if needed
     if (posts.length < limit && (totalSeries > 0)) {
         const seriesSkip = Math.max(0, skip - totalMovies);
         const seriesLimit = limit - posts.length;
@@ -91,19 +121,15 @@ const getPostDetails = async (req, res) => {
   res.json(post);
 };
 
-// ✅ UPDATED: Robust Update Function
 const updatePost = async (req, res) => {
   const { id, type, data } = req.body;
   const Model = type === "Movie" ? Movie : Series;
 
   try {
-    console.log(`📝 Attempting update for ${type} ID: ${id}`);
-
-    // 1. Fetch Original Doc
     const oldDoc = await Model.findById(id);
     if (!oldDoc) return res.status(404).json({ error: "Post not found" });
 
-    // 2. Handle RPMShare Rename
+    // 1. RPMShare Rename Logic
     const newTitle = type === "Movie" ? data.title : data.name;
     const oldTitle = type === "Movie" ? oldDoc.title : oldDoc.name;
 
@@ -122,23 +148,15 @@ const updatePost = async (req, res) => {
         }
     }
 
-    // 3. PREPARE DATA: Remove ALL immutable system fields
-    const updateData = { ...data };
-    delete updateData._id;
-    delete updateData.createdAt;
-    delete updateData.updatedAt;
-    delete updateData.__v;
+    // 2. CLEAN DATA (Fixes _id immutable error)
+    const { _id, createdAt, __v, ...updateData } = data;
 
-    // 4. Perform Update
-    // runValidators: false is safer for admin overrides
-    await Model.findByIdAndUpdate(id, { $set: updateData }, { runValidators: false });
-    
-    console.log("✅ Database Update Success");
+    // 3. Update Database
+    await Model.findByIdAndUpdate(id, { $set: updateData });
     res.json({ success: true });
 
   } catch (error) {
-    console.error("❌ CRITICAL UPDATE ERROR:", error);
-    // Return the actual error message so the frontend can show it
+    console.error("Update Error:", error);
     res.status(500).json({ error: error.message });
   }
 };

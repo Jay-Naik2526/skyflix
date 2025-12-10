@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Save, Plus, Trash, ArrowLeft, Image as ImageIcon, Film } from "lucide-react";
 
+// Use environment variables for API URLs in a real application
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function PostEditor() {
@@ -28,12 +29,12 @@ export default function PostEditor() {
 
   const handleSave = async () => {
     try {
+      // ✅ Ensures we hit the correct route defined in adminRoutes.js
       await axios.post(`${API_URL}/api/admin/update-post`, { id, type, data: post });
-      alert("✅ Saved Successfully! (File renamed on RPMShare if title changed)");
-    } catch (error: any) {
+      alert("Saved Successfully!");
+    } catch (error) {
       console.error("Failed to save:", error);
-      const serverMsg = error.response?.data?.error || error.message;
-      alert(`❌ Failed to save: ${serverMsg}`);
+      alert("Failed to save.");
     }
   };
 
@@ -79,6 +80,26 @@ export default function PostEditor() {
     setPost({ ...post, seasons: newSeasons });
   };
 
+  // ✅ NEW: Add Season Logic
+  const addSeason = () => {
+    const nextSeasonNum = (post.seasons?.length || 0) + 1;
+    const newSeason = {
+        season_number: nextSeasonNum,
+        name: `Season ${nextSeasonNum}`,
+        episodes: []
+    };
+    // Append new season to the existing list
+    setPost({ ...post, seasons: [...(post.seasons || []), newSeason] });
+  };
+
+  // ✅ NEW: Delete Season Logic
+  const deleteSeason = (index: number) => {
+    if (!window.confirm("Delete this entire season and all its episodes?")) return;
+    const newSeasons = [...post.seasons];
+    newSeasons.splice(index, 1);
+    setPost({ ...post, seasons: newSeasons });
+  };
+
   if (loading) return <div className="text-white p-10">Loading...</div>;
   if (!post) return <div className="text-white p-10">Could not load post data.</div>;
 
@@ -106,7 +127,7 @@ export default function PostEditor() {
           <h3 className="font-bold text-gray-400 mb-4 border-b border-white/10 pb-2">General Info</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Title (Renames File on Save)</label>
+              <label className="block text-xs text-gray-500 mb-1">Title</label>
               <input
                 className="w-full bg-black/30 p-2 rounded border border-white/10 focus:border-blue-500 outline-none"
                 value={post.title || post.name}
@@ -124,14 +145,14 @@ export default function PostEditor() {
             </div>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Poster Path (URL or /path.jpg)</label>
+            <label className="block text-xs text-gray-500 mb-1">Poster Path</label>
             <div className="flex gap-2">
               <input
                 className="flex-1 bg-black/30 p-2 rounded border border-white/10 focus:border-blue-500 outline-none"
                 value={post.poster_path}
                 onChange={(e) => updateField("poster_path", e.target.value)}
               />
-              <img src={getImageUrl(post.poster_path)} className="h-10 w-8 object-cover rounded bg-gray-800" alt="Preview" />
+              <img src={getImageUrl(post.poster_path)} className="h-10 w-8 object-cover rounded bg-gray-800" />
             </div>
           </div>
           <div>
@@ -174,63 +195,81 @@ export default function PostEditor() {
           </div>
         )}
 
-        {/* --- SERIES EDITOR (This uses the extra icons) --- */}
-        {type === "Series" && post.seasons?.map((season: any, sIdx: number) => (
-          <div key={sIdx} className="bg-[#16181f] p-6 rounded-xl border border-white/10 space-y-4">
-            <div className="flex justify-between items-center border-b border-white/10 pb-2">
-              <h3 className="font-bold text-lg text-white">Season {season.season_number}</h3>
-              <button onClick={() => addEpisode(sIdx)} className="text-xs bg-blue-600 px-3 py-1 rounded hover:bg-blue-700 flex items-center gap-1">
-                <Plus size={14} /> Add Episode
-              </button>
-            </div>
+        {/* --- SERIES EDITOR WITH ADD SEASON BUTTON --- */}
+        {type === "Series" && (
+            <>
+                {post.seasons?.map((season: any, sIdx: number) => (
+                <div key={sIdx} className="bg-[#16181f] p-6 rounded-xl border border-white/10 space-y-4 relative">
+                    <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                        <h3 className="font-bold text-lg text-white">Season {season.season_number}</h3>
+                        <div className="flex gap-2">
+                            {/* Delete Season Button */}
+                            <button onClick={() => deleteSeason(sIdx)} className="text-xs bg-red-900/30 text-red-400 px-3 py-1 rounded hover:bg-red-900">
+                                Delete Season
+                            </button>
+                            <button onClick={() => addEpisode(sIdx)} className="text-xs bg-blue-600 px-3 py-1 rounded hover:bg-blue-700 flex items-center gap-1">
+                                <Plus size={14} /> Add Episode
+                            </button>
+                        </div>
+                    </div>
 
-            <div className="space-y-4">
-              {season.episodes.map((ep: any, eIdx: number) => (
-                <div key={eIdx} className="bg-black/20 p-4 rounded border border-white/5 hover:border-white/20 transition-colors">
-                  <div className="flex gap-4 mb-3">
-                    <div className="w-16">
-                      <label className="text-[10px] text-gray-500">Ep #</label>
-                      <input
-                        type="number"
-                        className="w-full bg-black/40 p-1 rounded text-center font-bold outline-none"
-                        value={ep.episode_number}
-                        onChange={(e) => updateEpisode(sIdx, eIdx, "episode_number", parseInt(e.target.value))}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-[10px] text-gray-500">Title</label>
-                      <input
-                        className="w-full bg-black/40 p-1 rounded outline-none"
-                        value={ep.name}
-                        onChange={(e) => updateEpisode(sIdx, eIdx, "name", e.target.value)}
-                      />
-                    </div>
-                    <button onClick={() => deleteEpisode(sIdx, eIdx)} className="text-red-500 hover:text-red-400 self-end p-2"><Trash size={16} /></button>
-                  </div>
+                    <div className="space-y-4">
+                    {season.episodes.map((ep: any, eIdx: number) => (
+                        <div key={eIdx} className="bg-black/20 p-4 rounded border border-white/5 hover:border-white/20 transition-colors">
+                        <div className="flex gap-4 mb-3">
+                            <div className="w-16">
+                            <label className="text-[10px] text-gray-500">Ep #</label>
+                            <input
+                                type="number"
+                                className="w-full bg-black/40 p-1 rounded text-center font-bold outline-none"
+                                value={ep.episode_number}
+                                onChange={(e) => updateEpisode(sIdx, eIdx, "episode_number", parseInt(e.target.value))}
+                            />
+                            </div>
+                            <div className="flex-1">
+                            <label className="text-[10px] text-gray-500">Title</label>
+                            <input
+                                className="w-full bg-black/40 p-1 rounded outline-none"
+                                value={ep.name}
+                                onChange={(e) => updateEpisode(sIdx, eIdx, "name", e.target.value)}
+                            />
+                            </div>
+                            <button onClick={() => deleteEpisode(sIdx, eIdx)} className="text-red-500 hover:text-red-400 self-end p-2"><Trash size={16} /></button>
+                        </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] text-gray-500 flex items-center gap-1"><Film size={10} /> Embed Code</label>
-                      <input
-                        className="w-full bg-black/40 p-1 rounded text-xs font-mono outline-none"
-                        value={ep.embedCode}
-                        onChange={(e) => updateEpisode(sIdx, eIdx, "embedCode", e.target.value)}
-                      />
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                            <label className="text-[10px] text-gray-500 flex items-center gap-1"><Film size={10} /> Embed Code</label>
+                            <input
+                                className="w-full bg-black/40 p-1 rounded text-xs font-mono outline-none"
+                                value={ep.embedCode}
+                                onChange={(e) => updateEpisode(sIdx, eIdx, "embedCode", e.target.value)}
+                            />
+                            </div>
+                            <div>
+                            <label className="text-[10px] text-gray-500 flex items-center gap-1"><ImageIcon size={10} /> Thumbnail Path</label>
+                            <input
+                                className="w-full bg-black/40 p-1 rounded text-xs outline-none"
+                                value={ep.still_path}
+                                onChange={(e) => updateEpisode(sIdx, eIdx, "still_path", e.target.value)}
+                            />
+                            </div>
+                        </div>
+                        </div>
+                    ))}
                     </div>
-                    <div>
-                      <label className="text-[10px] text-gray-500 flex items-center gap-1"><ImageIcon size={10} /> Thumbnail Path</label>
-                      <input
-                        className="w-full bg-black/40 p-1 rounded text-xs outline-none"
-                        value={ep.still_path}
-                        onChange={(e) => updateEpisode(sIdx, eIdx, "still_path", e.target.value)}
-                      />
-                    </div>
-                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
+                ))}
+
+                {/* ✅ ADD SEASON BUTTON */}
+                <button 
+                    onClick={addSeason}
+                    className="w-full py-4 bg-green-600/10 border border-green-600/30 text-green-400 rounded-xl hover:bg-green-600 hover:text-white transition-colors font-bold flex items-center justify-center gap-2 mt-4"
+                >
+                    <Plus size={20} /> Add New Season
+                </button>
+            </>
+        )}
 
       </div>
     </div>
