@@ -114,8 +114,8 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
             /* MOBILE STYLES: Bottom Sheet, Rounded Top only, 85% Height */
             fixed bottom-0 h-[85vh] rounded-t-3xl 
             
-            /* DESKTOP STYLES: Centered Modal, Fully Rounded, Auto Height */
-            md:relative md:bottom-auto md:h-auto md:max-h-[90vh] md:max-w-6xl md:rounded-2xl md:border
+            /* DESKTOP STYLES: Centered Modal, Fixed Height 85% (Fixes scrolling) */
+            md:relative md:bottom-auto md:h-[85vh] md:max-w-6xl md:rounded-2xl md:border
           "
         >
             
