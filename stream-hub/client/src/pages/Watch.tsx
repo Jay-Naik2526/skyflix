@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 export default function Watch() {
   const navigate = useNavigate();
   const location = useLocation();
-  const movie = location.state?.movie; // This could be a Movie OR an Episode
+  const movie = location.state?.movie; 
 
   useEffect(() => {
     if (!movie) {
@@ -18,7 +18,6 @@ export default function Watch() {
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center overflow-y-auto">
       
-      {/* Back Button */}
       <button 
         onClick={() => navigate(-1)} 
         className="absolute top-6 right-6 z-50 p-3 bg-red-600 hover:bg-red-700 rounded-full text-white shadow-lg border border-white/20 transition-transform hover:scale-110"
@@ -26,11 +25,7 @@ export default function Watch() {
         <X size={28} />
       </button>
 
-      {/* Player Container */}
       <div className="w-full md:w-[80%] aspect-video bg-black relative shadow-2xl mt-10">
-         {/* Check 1: Does it have 'embedCode'? (From our Sync)
-            Check 2: Fallback to 'movie.content' if structured differently 
-         */}
          {movie.embedCode ? (
            <div 
              className="w-full h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:border-0"

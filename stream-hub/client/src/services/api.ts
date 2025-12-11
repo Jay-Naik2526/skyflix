@@ -8,11 +8,23 @@ const normalize = (response: any) => {
   return response || { data: [], totalPages: 0 };
 };
 
+// ✅ NEW: Fetch configured Home Data
+export const fetchHomeContent = async () => {
+  try {
+    const res = await fetch(`${API_URL}/home`);
+    return await res.json();
+  } catch (error) {
+    console.error("Failed to fetch home content", error);
+    // Return empty structure on error
+    return { banner: [], sections: [] };
+  }
+};
+
 export const fetchMovies = async (page = 1, limit = 24) => {
   try {
     const res = await fetch(`${API_URL}/movies?page=${page}&limit=${limit}`);
     const json = await res.json();
-    return normalize(json); // <--- Auto-fix format
+    return normalize(json); 
   } catch (error) {
     console.error("Failed to fetch movies", error);
     return { data: [], totalPages: 0 };
@@ -23,7 +35,7 @@ export const fetchSeries = async (page = 1, limit = 24) => {
   try {
     const res = await fetch(`${API_URL}/series?page=${page}&limit=${limit}`);
     const json = await res.json();
-    return normalize(json); // <--- Auto-fix format
+    return normalize(json);
   } catch (error) {
     console.error("Failed to fetch series", error);
     return { data: [], totalPages: 0 };

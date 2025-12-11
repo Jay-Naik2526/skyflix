@@ -3,7 +3,8 @@ const router = express.Router();
 const { 
   getRPMFiles, renameRPMFiles, 
   getAllPosts, getPostDetails, updatePost, deletePost, 
-  getHomepageConfig, updateHomepageConfig, getDuplicates, deleteAllPosts, fixDatabaseRules 
+  getHomepageConfig, updateHomepageConfig, getDuplicates, deleteAllPosts, fixDatabaseRules,
+  getRequests, deleteRequest // <--- Added these imports
 } = require("../controllers/adminController");
 
 // Import External Controllers
@@ -19,7 +20,7 @@ router.post("/rename", renameRPMFiles);
 // Post Management (CRUD)
 router.get("/posts", getAllPosts);
 router.get("/post-details", getPostDetails);
-router.post("/update-post", updatePost); // <--- This matches the frontend now
+router.post("/update-post", updatePost); 
 router.delete("/delete-post", deletePost);
 router.delete("/delete-all", deleteAllPosts);
 
@@ -29,7 +30,11 @@ router.post("/homepage", updateHomepageConfig);
 
 // Tools
 router.get("/duplicates", getDuplicates);
-router.post("/fix-db", fixDatabaseRules); // <--- Added missing route for "Fix Rules" button
+router.post("/fix-db", fixDatabaseRules);
+
+// ✅ NEW: Request Management
+router.get("/requests", getRequests);
+router.delete("/delete-request", deleteRequest);
 
 // Actions
 router.post("/sync", syncContent);

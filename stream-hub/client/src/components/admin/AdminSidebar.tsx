@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { FileText, Edit, Layout, AlertTriangle } from "lucide-react";
+import { FileText, Edit, Layout, AlertTriangle, MessageSquare } from "lucide-react"; // ✅ Import MessageSquare
 
 export default function AdminSidebar() {
   const location = useLocation();
@@ -8,7 +8,8 @@ export default function AdminSidebar() {
     { name: "Rename Tool", path: "/admin/rename", icon: FileText },
     { name: "Manage Posts", path: "/admin/posts", icon: Edit },
     { name: "Homepage", path: "/admin/homepage", icon: Layout },
-    { name: "Duplicates", path: "/admin/duplicates", icon: AlertTriangle }, // New Tool
+    { name: "Requests", path: "/admin/requests", icon: MessageSquare }, // ✅ NEW ITEM
+    { name: "Duplicates", path: "/admin/duplicates", icon: AlertTriangle },
   ];
 
   return (
@@ -37,7 +38,7 @@ export default function AdminSidebar() {
 
       {/* Footer Info */}
       <div className="absolute bottom-6 left-6 text-xs text-gray-600">
-        <p>StreamHub CMS v1.0</p>
+        <p>StreamHub CMS v1.2</p>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { fetchMovies, fetchSeries } from "../services/api";
 import HeroBanner from "../components/HeroBanner";
 import Row from "../components/Row";
+import { useOutletContext } from "react-router-dom";
 
 // --- TMDB GENRE ID TO NAME TRANSLATOR ---
 const GENRE_MAP: Record<string, string> = {
@@ -13,27 +14,26 @@ const GENRE_MAP: Record<string, string> = {
   "10765": "Sci-Fi & Fantasy", "10768": "War & Politics"
 };
 
-interface HomeProps {
-  onMovieClick: (movie: any) => void;
-}
-
-export default function Home({ onMovieClick }: HomeProps) {
+export default function Home() {
   const [heroMovies, setHeroMovies] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const context = useOutletContext<any>();
+  const onMovieClick = context?.onMovieClick || (() => {});
 
   useEffect(() => {
     const loadContent = async () => {
       setLoading(true);
       try {
-        // 1. FETCH DATA (Movies and Series)
+        // 1. FETCH DATA
         const movieRes = await fetchMovies(1, 100);
         const seriesRes = await fetchSeries(1, 100);
 
         const movies = movieRes.data || [];
         const series = seriesRes.data || [];
 
-        // 2. PROCESS ITEMS & MAP GENRES
+        // 2. PROCESS ITEMS
         const processItem = (item: any) => ({
           ...item,
           displayGenres: item.genre_ids?.map((id: string) => GENRE_MAP[id] || "Other") || []
@@ -46,30 +46,45 @@ export default function Home({ onMovieClick }: HomeProps) {
         // 3. BUILD DYNAMIC ROWS
         const builtSections: any[] = [];
 
-        // A. Always add "Latest" rows first
+        // A. Latest Rows
         if (allMovies.length > 0) builtSections.push({ title: "Latest Movies", data: allMovies.slice(0, 20) });
         if (allSeries.length > 0) builtSections.push({ title: "Latest Series", data: allSeries.slice(0, 20) });
 
-        // B. Find ALL unique genres present in your data (Dynamic Discovery)
+        // B. Custom Collections (Spider-Man & Doraemon)
+        const spiderManContent = allContent.filter(item => 
+          (item.title || item.name || "").toLowerCase().includes("spider-man")
+        );
+        if (spiderManContent.length > 0) {
+          builtSections.push({ title: "Spider-Man Collection", data: spiderManContent });
+        }
+
+        const doraemonContent = allContent.filter(item => 
+          (item.title || item.name || "").toLowerCase().includes("doraemon")
+        );
+        if (doraemonContent.length > 0) {
+          builtSections.push({ title: "Doraemon Collection", data: doraemonContent });
+        }
+
+        // C. Dynamic Genre Rows
         const uniqueGenres = Array.from(new Set(allContent.flatMap((item: any) => item.displayGenres)))
-          .filter((genre) => genre !== "Other" && genre) // Remove invalid/empty genres
+          .filter((genre) => genre !== "Other" && genre)
           .sort();
 
-        // C. Generate a Row for every single genre found
         uniqueGenres.forEach((genre) => {
           const genreItems = allContent.filter((item: any) => item.displayGenres.includes(genre));
           if (genreItems.length > 0) {
             builtSections.push({
-              title: `${genre} Collection`, // e.g., "Action Collection"
-              data: genreItems.slice(0, 20) // Limit to 20 items per row
+              title: `${genre} Collection`,
+              data: genreItems.slice(0, 20)
             });
           }
         });
 
         setSections(builtSections);
 
-        // 4. LOAD HERO BANNER
-        setHeroMovies(allMovies.slice(0, 5)); // Use the first 5 movies for the hero banner
+        // 4. LOAD HERO BANNER (Original Logic)
+        setHeroMovies(allMovies.slice(0, 5));
+
       } catch (error) {
         console.error("Error loading content:", error);
       } finally {
@@ -89,11 +104,12 @@ export default function Home({ onMovieClick }: HomeProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1014] text-white overflow-x-hidden pb-20">
-      {/* HERO BANNER */}
+    <div className="min-h-screen bg-[#0f1014] text-white overflow-x-hidden pb-20 relative">
+      
+      {/* 1. Hero Banner */}
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
 
-      {/* DYNAMIC CONTENT ROWS */}
+      {/* 2. Dynamic Content Rows */}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8">
         {sections.map((section, index) => (
           <Row

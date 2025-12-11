@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const Movie = require("../models/Movie");
 const Series = require("../models/Series");
 const Homepage = require("../models/Homepage");
+const Request = require("../models/Request"); // <--- Import Request Model
 require("dotenv").config();
 
 // --- 1. RENAME TOOL (FIXED: LOOPS ALL PAGES) ---
@@ -241,7 +242,27 @@ const fixDatabaseRules = async (req, res) => {
   }
 };
 
+// --- 7. REQUEST MANAGEMENT (NEW) ---
+const getRequests = async (req, res) => {
+  try {
+    const requests = await Request.find().sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteRequest = async (req, res) => {
+  try {
+    await Request.findByIdAndDelete(req.query.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   getRPMFiles, renameRPMFiles, getAllPosts, getPostDetails, updatePost, deletePost,
-  getHomepageConfig, updateHomepageConfig, getDuplicates, deleteAllPosts, fixDatabaseRules
+  getHomepageConfig, updateHomepageConfig, getDuplicates, deleteAllPosts, fixDatabaseRules,
+  getRequests, deleteRequest // <--- Added here
 };

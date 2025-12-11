@@ -1,5 +1,7 @@
 const Movie = require("../models/Movie");
 const Series = require("../models/Series");
+const Homepage = require("../models/Homepage");
+const Request = require("../models/Request"); // <--- Import New Model
 
 // --- HELPER: Sort Series (S1, S2... E1, E2...) ---
 const sortSeries = (seriesList) => {
@@ -27,63 +29,81 @@ const fetchCategory = async (Model, query, limit = 20) => {
 // --- 1. GET PROPER OTT HOME CONTENT ---
 const getHomeContent = async (req, res) => {
   try {
-    console.log("Fetching Full OTT Home Content...");
+    console.log("Fetching OTT Home Content...");
 
-    // Run ALL queries in parallel for speed
+    // 1. Fetch Admin Banner Config
+    let heroSlides = [];
+    try {
+        const config = await Homepage.findOne().populate('bannerItems.contentId');
+        if (config && config.bannerItems?.length > 0) {
+            heroSlides = config.bannerItems
+                .filter(item => item.contentId) // Filter out broken links
+                .map(item => ({ 
+                    ...item.contentId._doc, 
+                    type: item.onModel 
+                }));
+        }
+    } catch (err) { console.error("Banner Error:", err.message); }
+
+    // 2. Run Parallel Content Queries
     const [
         latestMovies,
         latestSeries,
-        topRatedMovies,
-        actionMovies,
-        sciFiContent,
-        comedyContent,
-        horrorMovies,
-        animeSeries
+        topRated,
+        action,
+        sciFiMovies,
+        sciFiSeries,
+        comedyMovies,
+        comedySeries,
+        horror,
+        anime
     ] = await Promise.all([
-        // 1. Latest Uploads
+        // A. Latest Uploads
         fetchCategory(Movie, {}, 20),
         fetchCategory(Series, {}, 20),
 
-        // 2. Top Rated (Rating > 7)
-        Movie.find({ vote_average: { $gte: 7 }, poster_path: { $ne: null } }).sort({ vote_average: -1 }).limit(20).lean(),
+        // B. Top Rated (Rating > 7.5)
+        Movie.find({ vote_average: { $gte: 7.5 }, poster_path: { $ne: null } }).sort({ vote_average: -1 }).limit(15).lean(),
 
-        // 3. Action Movies (Genre ID: 28)
-        fetchCategory(Movie, { genre_ids: "28" }, 20),
+        // C. Action Movies (Genre ID: 28)
+        fetchCategory(Movie, { genre_ids: "28" }, 15),
 
-        // 4. Sci-Fi & Fantasy (Movies: 878, Series: 10765)
-        Promise.all([
-            fetchCategory(Movie, { genre_ids: "878" }, 10),
-            fetchCategory(Series, { genre_ids: "10765" }, 10)
-        ]).then(([m, s]) => [...m, ...s].sort(() => 0.5 - Math.random())),
+        // D. Sci-Fi (Movie: 878, Series: 10765)
+        fetchCategory(Movie, { genre_ids: "878" }, 10),
+        fetchCategory(Series, { genre_ids: "10765" }, 10),
 
-        // 5. Comedy (Genre ID: 35)
-        Promise.all([
-            fetchCategory(Movie, { genre_ids: "35" }, 10),
-            fetchCategory(Series, { genre_ids: "35" }, 10)
-        ]).then(([m, s]) => [...m, ...s].sort(() => 0.5 - Math.random())),
+        // E. Comedy (Genre ID: 35)
+        fetchCategory(Movie, { genre_ids: "35" }, 10),
+        fetchCategory(Series, { genre_ids: "35" }, 10),
 
-        // 6. Horror (Genre ID: 27)
-        fetchCategory(Movie, { genre_ids: "27" }, 20),
+        // F. Horror (Genre ID: 27)
+        fetchCategory(Movie, { genre_ids: "27" }, 15),
 
-        // 7. Animation/Anime (Genre ID: 16)
-        fetchCategory(Series, { genre_ids: "16" }, 20),
+        // G. Animation/Anime (Genre ID: 16)
+        fetchCategory(Series, { genre_ids: "16" }, 15)
     ]);
 
-    // Format Data for Frontend
+    // 3. Fallback Banner if Admin didn't set one
+    if (heroSlides.length === 0) {
+        heroSlides = topRated.slice(0, 5).map(m => ({ ...m, type: "Movie" }));
+    }
+
+    // 4. Combine Mixed Categories
+    const sciFiContent = [...sciFiMovies, ...sciFiSeries].sort(() => 0.5 - Math.random());
+    const comedyContent = [...comedyMovies, ...comedySeries].sort(() => 0.5 - Math.random());
+
+    // 5. Structure Response
     const responseData = {
-        // Featured Item (Random high-quality item from Top Rated)
-        featured: topRatedMovies[Math.floor(Math.random() * topRatedMovies.length)] || latestMovies[0],
-        
-        // Dynamic Rows (The "OTT" Shelves)
+        banner: heroSlides,
         sections: [
             { title: "Latest Movies", data: latestMovies },
-            { title: "New Episodes & Series", data: sortSeries(latestSeries) },
-            { title: "Top Rated Collections", data: topRatedMovies.map(m => ({...m, type: "Movie"})) },
-            { title: "Action Blockbusters", data: actionMovies },
-            { title: "Sci-Fi & Fantasy Worlds", data: sciFiContent },
-            { title: "Comedy Hits", data: comedyContent },
-            { title: "Bone Chilling Horror", data: horrorMovies },
-            { title: "Animated Adventures", data: sortSeries(animeSeries) },
+            { title: "New Episodes", data: sortSeries(latestSeries) },
+            { title: "Top Rated Hits", data: topRated.map(m => ({...m, type:"Movie"})) },
+            { title: "Action Blockbusters", data: action },
+            { title: "Sci-Fi & Fantasy", data: sciFiContent },
+            { title: "Comedy Club", data: comedyContent },
+            { title: "Bone Chilling Horror", data: horror },
+            { title: "Anime World", data: sortSeries(anime) },
         ]
     };
 
@@ -139,4 +159,17 @@ const searchContent = async (req, res) => {
   }
 };
 
-module.exports = { getHomeContent, getMovies, getSeries, searchContent };
+// --- 5. NEW: REQUEST CONTENT ---
+const requestContent = async (req, res) => {
+  try {
+    const { title, year, platform } = req.body;
+    if (!title) return res.status(400).json({ error: "Movie/Series name is required" });
+
+    await Request.create({ title, year, platform });
+    res.json({ success: true, message: "Request received!" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { getHomeContent, getMovies, getSeries, searchContent, requestContent };
