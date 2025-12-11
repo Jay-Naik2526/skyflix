@@ -11,7 +11,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const cleanTitle = (rawTitle) => {
   if (!rawTitle) return "";
   let cleaned = rawTitle;
-  // Remove brackets, quality tags, and years if they are mixed in text
   cleaned = cleaned.replace(/\{.*?\}/g, "").replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "");
   const junkRegex = /\b(1080p|720p|480p|2160p|4k|WEB-DL|WEBRip|BluRay|DVDRip|ESub|Dual\sAudio|Hindi|English|x264|x265|HEVC|AAC|DDP5\.1|H\.264)\b/gi;
   cleaned = cleaned.replace(junkRegex, "");
@@ -22,7 +21,7 @@ const cleanTitle = (rawTitle) => {
 };
 
 const runBackgroundUpdate = async () => {
-  console.log("🚀 BACKGROUND JOB STARTED: Smart Metadata Fetch (Year-Aware)...");
+  console.log("🚀 BACKGROUND JOB STARTED: Deep Fetch (With Genres)...");
 
   let processing = true;
   let batchSize = 10; 
@@ -31,14 +30,12 @@ const runBackgroundUpdate = async () => {
 
   while (processing) {
     try {
-      // Find items missing IDs
+      // Find items that have no Genres recorded yet
       const criteria = {
         $or: [
           { tmdbId: null },
-          { tmdbId: "NOT_FOUND" },
-          { tmdbId: { $exists: false } },
-          { poster_path: null },
-          { poster_path: "" }
+          { genre_ids: { $size: 0 } }, // ✅ Also fix items that have IDs but no Genres
+          { poster_path: null }
         ]
       };
 
@@ -63,9 +60,6 @@ const runBackgroundUpdate = async () => {
         const isSeries = !!item.seasons;
         const rawName = isSeries ? item.name : item.title;
         const cleanQuery = cleanTitle(rawName);
-        
-        // ✅ NEW: Get the Year from our new DB field
-        const yearParam = (!isSeries && item.releaseYear) ? `&primary_release_year=${item.releaseYear}` : "";
 
         if (!cleanQuery) {
           item.tmdbId = "SKIPPED_EMPTY";
@@ -76,29 +70,22 @@ const runBackgroundUpdate = async () => {
         try {
           const type = isSeries ? "tv" : "movie";
           
-          // 1. SEARCH TMDB (With Year if available)
-          if (!item.tmdbId || item.tmdbId === "NOT_FOUND" || item.tmdbId === "MANUAL_CHECK") {
-             const searchUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}${yearParam}&include_adult=true`;
-             console.log(`🔎 Searching: "${cleanQuery}" [Year: ${item.releaseYear || "Any"}]`);
+          if (!item.tmdbId || item.tmdbId === "NOT_FOUND" || item.tmdbId === "MANUAL_CHECK" || item.genre_ids.length === 0) {
+             const searchUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}&include_adult=true`;
+             console.log(`🔎 Searching: "${cleanQuery}"...`);
              
              const searchRes = await axios.get(searchUrl);
              
              if (searchRes.data.results?.length > 0) {
-                // Strict match: If we have a year, prefer the exact year match
-                let bestMatch = searchRes.data.results[0];
-                
-                if (item.releaseYear) {
-                    const exactYearMatch = searchRes.data.results.find(r => 
-                        (r.release_date || "").startsWith(item.releaseYear.toString())
-                    );
-                    if (exactYearMatch) bestMatch = exactYearMatch;
-                }
-
+                const bestMatch = searchRes.data.results[0];
                 item.tmdbId = bestMatch.id;
                 item.overview = bestMatch.overview;
                 item.poster_path = bestMatch.poster_path ? "https://image.tmdb.org/t/p/w500" + bestMatch.poster_path : "";
                 item.backdrop_path = bestMatch.backdrop_path ? "https://image.tmdb.org/t/p/original" + bestMatch.backdrop_path : "";
                 item.vote_average = bestMatch.vote_average;
+                
+                // ✅ CRITICAL FIX: Save the Genres!
+                item.genre_ids = bestMatch.genre_ids || []; 
                 
                 if (!isSeries) {
                     item.title = bestMatch.title;
@@ -107,7 +94,7 @@ const runBackgroundUpdate = async () => {
                     item.name = bestMatch.name;
                     item.first_air_date = bestMatch.first_air_date;
                 }
-                console.log(`✅ MATCHED: ${isSeries ? item.name : item.title}`);
+                console.log(`✅ MATCHED: ${isSeries ? item.name : item.title} [Genres: ${item.genre_ids.length}]`);
              } else {
                 console.log(`❌ No match: "${cleanQuery}"`);
                 item.tmdbId = "MANUAL_CHECK";
@@ -116,7 +103,7 @@ const runBackgroundUpdate = async () => {
              }
           }
 
-          // 2. FETCH SERIES EPISODES (Standard logic)
+          // Series Episode Fetching (Standard Logic)
           if (isSeries && item.tmdbId) {
              for (let sIndex = 0; sIndex < item.seasons.length; sIndex++) {
                 const season = item.seasons[sIndex];
@@ -124,7 +111,6 @@ const runBackgroundUpdate = async () => {
                     const seasonUrl = `${TMDB_BASE_URL}/tv/${item.tmdbId}/season/${season.season_number}?api_key=${TMDB_API_KEY}`;
                     const seasonRes = await axios.get(seasonUrl);
                     const tmdbEpisodes = seasonRes.data.episodes; 
-
                     season.episodes.forEach(localEp => {
                         const realEp = tmdbEpisodes.find(t => t.episode_number === localEp.episode_number);
                         if (realEp) {
@@ -133,7 +119,7 @@ const runBackgroundUpdate = async () => {
                             localEp.still_path = realEp.still_path ? "https://image.tmdb.org/t/p/w500" + realEp.still_path : "";
                         } 
                     });
-                } catch (seasonErr) { /* Ignore season fetch errors */ }
+                } catch (e) {}
                 await sleep(200); 
              }
           }
@@ -155,7 +141,7 @@ const runBackgroundUpdate = async () => {
 
 const fetchMetadata = async (req, res) => {
   runBackgroundUpdate();
-  res.json({ message: "Deep Sync Started! Using Year for better accuracy." });
+  res.json({ message: "Deep Sync Started! Fixing Genres & Posters..." });
 };
 
 module.exports = { fetchMetadata };
