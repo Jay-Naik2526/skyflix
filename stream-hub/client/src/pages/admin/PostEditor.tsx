@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Save, Plus, Trash, ArrowLeft, Image as ImageIcon, Film } from "lucide-react";
+import { Save, Plus, Trash, ArrowLeft, Image as ImageIcon, Film, Download, FileText } from "lucide-react";
 
 // Use environment variables for API URLs in a real application
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -29,12 +29,12 @@ export default function PostEditor() {
 
   const handleSave = async () => {
     try {
-      // ✅ Ensures we hit the correct route defined in adminRoutes.js
       await axios.post(`${API_URL}/api/admin/update-post`, { id, type, data: post });
-      alert("Saved Successfully!");
-    } catch (error) {
+      alert("✅ Saved Successfully!");
+    } catch (error: any) {
       console.error("Failed to save:", error);
-      alert("Failed to save.");
+      const msg = error.response?.data?.error || error.message;
+      alert(`❌ Failed to save: ${msg}`);
     }
   };
 
@@ -80,7 +80,6 @@ export default function PostEditor() {
     setPost({ ...post, seasons: newSeasons });
   };
 
-  // ✅ NEW: Add Season Logic
   const addSeason = () => {
     const nextSeasonNum = (post.seasons?.length || 0) + 1;
     const newSeason = {
@@ -88,11 +87,9 @@ export default function PostEditor() {
         name: `Season ${nextSeasonNum}`,
         episodes: []
     };
-    // Append new season to the existing list
     setPost({ ...post, seasons: [...(post.seasons || []), newSeason] });
   };
 
-  // ✅ NEW: Delete Season Logic
   const deleteSeason = (index: number) => {
     if (!window.confirm("Delete this entire season and all its episodes?")) return;
     const newSeasons = [...post.seasons];
@@ -123,6 +120,7 @@ export default function PostEditor() {
 
       <div className="max-w-4xl mx-auto space-y-8">
 
+        {/* General Info */}
         <div className="bg-[#16181f] p-6 rounded-xl border border-white/10 space-y-4">
           <h3 className="font-bold text-gray-400 mb-4 border-b border-white/10 pb-2">General Info</h3>
           <div className="grid grid-cols-2 gap-4">
@@ -152,7 +150,7 @@ export default function PostEditor() {
                 value={post.poster_path}
                 onChange={(e) => updateField("poster_path", e.target.value)}
               />
-              <img src={getImageUrl(post.poster_path)} className="h-10 w-8 object-cover rounded bg-gray-800" />
+              <img src={getImageUrl(post.poster_path)} className="h-10 w-8 object-cover rounded bg-gray-800" alt="Preview" />
             </div>
           </div>
           <div>
@@ -173,6 +171,7 @@ export default function PostEditor() {
           </div>
         </div>
 
+        {/* Movie Video Source */}
         {type === "Movie" && (
           <div className="bg-[#16181f] p-6 rounded-xl border border-white/10 space-y-4">
             <h3 className="font-bold text-gray-400 mb-4 border-b border-white/10 pb-2">Video Source</h3>
@@ -195,7 +194,7 @@ export default function PostEditor() {
           </div>
         )}
 
-        {/* --- SERIES EDITOR WITH ADD SEASON BUTTON --- */}
+        {/* Series Editor */}
         {type === "Series" && (
             <>
                 {post.seasons?.map((season: any, sIdx: number) => (
@@ -203,7 +202,6 @@ export default function PostEditor() {
                     <div className="flex justify-between items-center border-b border-white/10 pb-2">
                         <h3 className="font-bold text-lg text-white">Season {season.season_number}</h3>
                         <div className="flex gap-2">
-                            {/* Delete Season Button */}
                             <button onClick={() => deleteSeason(sIdx)} className="text-xs bg-red-900/30 text-red-400 px-3 py-1 rounded hover:bg-red-900">
                                 Delete Season
                             </button>
@@ -216,6 +214,8 @@ export default function PostEditor() {
                     <div className="space-y-4">
                     {season.episodes.map((ep: any, eIdx: number) => (
                         <div key={eIdx} className="bg-black/20 p-4 rounded border border-white/5 hover:border-white/20 transition-colors">
+                        
+                        {/* Header: Ep Num + Title + Delete */}
                         <div className="flex gap-4 mb-3">
                             <div className="w-16">
                             <label className="text-[10px] text-gray-500">Ep #</label>
@@ -237,7 +237,8 @@ export default function PostEditor() {
                             <button onClick={() => deleteEpisode(sIdx, eIdx)} className="text-red-500 hover:text-red-400 self-end p-2"><Trash size={16} /></button>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        {/* Embed & Thumbnail */}
+                        <div className="grid grid-cols-2 gap-4 mb-3">
                             <div>
                             <label className="text-[10px] text-gray-500 flex items-center gap-1"><Film size={10} /> Embed Code</label>
                             <input
@@ -255,13 +256,33 @@ export default function PostEditor() {
                             />
                             </div>
                         </div>
+
+                        {/* ✅ NEW FIELDS: Description & Download Link */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] text-gray-500 flex items-center gap-1"><FileText size={10} /> Description</label>
+                                <textarea
+                                    className="w-full bg-black/40 p-1 rounded text-xs outline-none h-16 resize-none"
+                                    value={ep.overview}
+                                    onChange={(e) => updateEpisode(sIdx, eIdx, "overview", e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-500 flex items-center gap-1"><Download size={10} /> Download Link</label>
+                                <input
+                                    className="w-full bg-black/40 p-1 rounded text-xs outline-none"
+                                    value={ep.downloadLink}
+                                    onChange={(e) => updateEpisode(sIdx, eIdx, "downloadLink", e.target.value)}
+                                />
+                            </div>
+                        </div>
+
                         </div>
                     ))}
                     </div>
                 </div>
                 ))}
 
-                {/* ✅ ADD SEASON BUTTON */}
                 <button 
                     onClick={addSeason}
                     className="w-full py-4 bg-green-600/10 border border-green-600/30 text-green-400 rounded-xl hover:bg-green-600 hover:text-white transition-colors font-bold flex items-center justify-center gap-2 mt-4"
