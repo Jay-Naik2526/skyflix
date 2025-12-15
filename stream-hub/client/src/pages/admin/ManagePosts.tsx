@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { Trash2, Search, RefreshCw, FileVideo, DownloadCloud, Wrench, Edit } from "lucide-react";
-import { useNavigate } from "react-router-dom"; // ✅ Import useNavigate
+import { useNavigate } from "react-router-dom";
 
 interface Post {
   _id: string;
-  title?: string;
-  name?: string;
+  title?: string; // Movies have title
+  name?: string;  // Series have name
   type: 'Movie' | 'Series';
   poster_path?: string;
   createdAt: string;
@@ -18,25 +18,46 @@ export default function ManagePosts() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const navigate = useNavigate(); // ✅ Hook for navigation
+  const navigate = useNavigate();
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [syncing, setSyncing] = useState(false);
   const [fetchingMeta, setFetchingMeta] = useState(false);
 
+  // Debounce search so we don't spam the API
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      setPage(1); // Reset to page 1 on new search
+      loadPosts();
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
+
+  // Trigger load on page change
+  useEffect(() => {
+    loadPosts();
+  }, [page]);
+
   const loadPosts = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_URL}/api/admin/posts?page=${page}&limit=20`);
+      // Pass the search term to the backend
+      const res = await axios.get(`${API_URL}/api/admin/posts`, {
+        params: {
+          page: page,
+          limit: 20,
+          search: searchTerm // Backend now handles this
+        }
+      });
+
       if (res.data.posts && Array.isArray(res.data.posts)) {
         setPosts(res.data.posts);
         setTotalPages(res.data.totalPages || 1);
-      } else if (Array.isArray(res.data)) {
-        setPosts(res.data);
-        setTotalPages(1);
       } else {
         setPosts([]);
+        setTotalPages(1);
       }
     } catch (error) {
       console.error("Error loading posts:", error);
@@ -45,10 +66,6 @@ export default function ManagePosts() {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadPosts();
-  }, [page]);
 
   const handleSync = async () => {
     if (!window.confirm("Start Sync?")) return;
@@ -97,14 +114,13 @@ export default function ManagePosts() {
   };
 
   const handleDelete = async (id: string, type: string) => {
-    if (!window.confirm("Delete this item?")) return;
+    if (!window.confirm("Delete this item? WARNING: This will also delete the file from RPMShare.")) return;
     try {
       await axios.delete(`${API_URL}/api/admin/delete-post?id=${id}&type=${type}`);
       loadPosts();
     } catch (error) { alert("Failed to delete item."); }
   };
 
-  // ✅ NEW: Navigate to Editor
   const handleEdit = (id: string, type: string) => {
     navigate(`/admin/post-editor?id=${id}&type=${type}`);
   };
@@ -115,12 +131,8 @@ export default function ManagePosts() {
     return `https://image.tmdb.org/t/p/w200${path}`;
   }
 
-  const filteredPosts = posts.filter(p =>
-    (p.title || p.name || "").toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
-    <div className="p-8 text-white min-h-screen">
+    <div className="p-8 ml-64 bg-[#0f1014] text-white min-h-screen">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold mb-2">Manage Posts</h1>
@@ -137,7 +149,7 @@ export default function ManagePosts() {
       <div className="relative mb-6">
         <input
           type="text"
-          placeholder="Search current page..."
+          placeholder="Search entire database..."
           className="w-full bg-[#16181f] border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -147,7 +159,7 @@ export default function ManagePosts() {
 
       <div className="bg-[#16181f] rounded-xl border border-white/10 overflow-hidden">
         {loading ? <div className="p-12 text-center text-gray-500">Loading...</div> :
-          filteredPosts.length === 0 ? <div className="p-12 text-center text-gray-500">No posts found.</div> :
+          posts.length === 0 ? <div className="p-12 text-center text-gray-500">No posts found.</div> :
             (
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -159,7 +171,7 @@ export default function ManagePosts() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {filteredPosts.map((post) => (
+                  {posts.map((post) => (
                     <tr key={post._id} className="hover:bg-white/5 transition-colors">
                       <td className="p-4 flex items-center gap-3">
                         <div className="w-10 h-10 rounded bg-gray-800 overflow-hidden flex-shrink-0">
@@ -175,11 +187,9 @@ export default function ManagePosts() {
                       <td className="p-4 text-sm text-gray-500">{new Date(post.createdAt).toLocaleDateString()}</td>
                       <td className="p-4 text-right">
                         <div className="flex justify-end gap-2">
-                            {/* ✅ EDIT BUTTON */}
                             <button onClick={() => handleEdit(post._id, post.type)} className="p-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded transition-colors" title="Edit">
                                 <Edit size={16} />
                             </button>
-                            {/* DELETE BUTTON */}
                             <button onClick={() => handleDelete(post._id, post.type)} className="p-2 bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white rounded transition-colors" title="Delete">
                                 <Trash2 size={16} />
                             </button>

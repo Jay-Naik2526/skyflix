@@ -3,10 +3,10 @@ const mongoose = require("mongoose");
 const Movie = require("../models/Movie");
 const Series = require("../models/Series");
 const Homepage = require("../models/Homepage");
-const Request = require("../models/Request"); // <--- Import Request Model
+const Request = require("../models/Request");
 require("dotenv").config();
 
-// --- 1. RENAME TOOL (FIXED: LOOPS ALL PAGES) ---
+// --- 1. RENAME TOOL ---
 const getRPMFiles = async (req, res) => {
   try {
     const apiKey = process.env.RPMSHARE_API_KEY;
@@ -16,28 +16,24 @@ const getRPMFiles = async (req, res) => {
 
     console.log("📥 Fetching file list from RPMShare...");
 
-    // Loop until we have everything
     while (hasMore) {
-      // Request 100 items at a time (API limit is usually 100)
       const url = `https://rpmshare.com/api/v1/video/manage?page=${page}&perPage=100&limit=100`;
       const response = await axios.get(url, { headers: { 'api-token': apiKey } });
       const data = response.data?.data;
 
       if (data && Array.isArray(data) && data.length > 0) {
-        // Add this page's files to our master list
         const simpleFiles = data.map(f => ({ id: f.id, name: f.name }));
         allFiles = [...allFiles, ...simpleFiles];
         
         console.log(`   Page ${page}: Fetched ${data.length} files. (Total: ${allFiles.length})`);
 
-        // If we got less than 100, it means we reached the last page
         if (data.length < 100) {
           hasMore = false;
         } else {
           page++;
         }
       } else {
-        hasMore = false; // No data returned, stop loop
+        hasMore = false;
       }
     }
 
@@ -65,52 +61,73 @@ const renameRPMFiles = async (req, res) => {
   res.json({ message: "Batch rename complete", results });
 };
 
-// --- 2. POST MANAGEMENT (WITH PAGINATION) ---
+// --- 2. POST MANAGEMENT (UNIFIED, SEARCHABLE, SORTED) ---
 const getAllPosts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
+    const search = req.query.search || "";
 
-    const totalMovies = await Movie.countDocuments();
-    const totalSeries = await Series.countDocuments();
-    const totalDocs = totalMovies + totalSeries;
-
-    let posts = [];
-    
-    // Fetch Movies slice
-    if (skip < totalMovies) {
-        const movies = await Movie.find()
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .select("title overview poster_path type createdAt");
-        posts = movies.map(m => ({ ...m._doc, type: "Movie", title: m.title }));
-    } 
-    
-    // Fetch Series slice if needed
-    if (posts.length < limit && (totalSeries > 0)) {
-        const seriesSkip = Math.max(0, skip - totalMovies);
-        const seriesLimit = limit - posts.length;
-        
-        const series = await Series.find()
-            .sort({ createdAt: -1 })
-            .skip(seriesSkip)
-            .limit(seriesLimit)
-            .select("name overview poster_path type createdAt");
-            
-        const formattedSeries = series.map(s => ({ ...s._doc, type: "Series", title: s.name }));
-        posts = [...posts, ...formattedSeries];
+    // Build Search Match Stage
+    let matchStage = {};
+    if (search) {
+      const regex = new RegExp(search, "i");
+      matchStage = { title: regex };
     }
+
+    // Aggregation Pipeline to Union Movies and Series
+    const pipeline = [
+      // 1. Start with Movies
+      { 
+        $addFields: { 
+          type: "Movie", 
+          // Ensure unified title field
+          sortDate: "$createdAt" 
+        } 
+      },
+      // 2. Union with Series
+      {
+        $unionWith: {
+          coll: "series",
+          pipeline: [
+            { 
+              $addFields: { 
+                type: "Series", 
+                title: "$name", // Map 'name' to 'title' for unified search
+                sortDate: "$createdAt"
+              } 
+            }
+          ]
+        }
+      },
+      // 3. Filter by Search Query (if any)
+      { $match: matchStage },
+      // 4. Sort by Date (Newest First) - Mixed Types
+      { $sort: { sortDate: -1 } },
+      // 5. Facet for Pagination
+      {
+        $facet: {
+          metadata: [{ $count: "total" }],
+          data: [{ $skip: skip }, { $limit: limit }]
+        }
+      }
+    ];
+
+    const results = await Movie.aggregate(pipeline);
+    
+    const posts = results[0].data;
+    const totalItems = results[0].metadata[0] ? results[0].metadata[0].total : 0;
 
     res.json({
       posts: posts,
-      totalPages: Math.ceil(totalDocs / limit),
+      totalPages: Math.ceil(totalItems / limit),
       currentPage: page,
-      totalItems: totalDocs
+      totalItems: totalItems
     });
 
   } catch (error) {
+    console.error("Get All Posts Error:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -130,7 +147,7 @@ const updatePost = async (req, res) => {
     const oldDoc = await Model.findById(id);
     if (!oldDoc) return res.status(404).json({ error: "Post not found" });
 
-    // 1. RPMShare Rename Logic
+    // RPMShare Rename Logic (Only for Movies single file)
     const newTitle = type === "Movie" ? data.title : data.name;
     const oldTitle = type === "Movie" ? oldDoc.title : oldDoc.name;
 
@@ -149,10 +166,7 @@ const updatePost = async (req, res) => {
         }
     }
 
-    // 2. CLEAN DATA (Fixes _id immutable error)
     const { _id, createdAt, __v, ...updateData } = data;
-
-    // 3. Update Database
     await Model.findByIdAndUpdate(id, { $set: updateData });
     res.json({ success: true });
 
@@ -162,11 +176,53 @@ const updatePost = async (req, res) => {
   }
 };
 
+// --- UPDATED: DELETE POST (Deletes from DB AND RPMShare) ---
 const deletePost = async (req, res) => {
   const { id, type } = req.query;
   const Model = type === "Movie" ? Movie : Series;
-  await Model.findByIdAndDelete(id);
-  res.json({ success: true });
+  const apiKey = process.env.RPMSHARE_API_KEY;
+
+  try {
+    const post = await Model.findById(id);
+    if (!post) return res.status(404).json({ error: "Post not found" });
+
+    // 1. DELETE FROM RPMShare
+    const filesToDelete = [];
+
+    if (type === "Movie" && post.fileCode) {
+      filesToDelete.push(post.fileCode);
+    } else if (type === "Series" && post.seasons) {
+      // Gather all episode fileCodes
+      post.seasons.forEach(season => {
+        season.episodes.forEach(ep => {
+          if (ep.fileCode) filesToDelete.push(ep.fileCode);
+        });
+      });
+    }
+
+    if (filesToDelete.length > 0) {
+      console.log(`🗑️ Deleting ${filesToDelete.length} files from RPMShare...`);
+      // RPMShare usually supports single deletes via standard REST DELETE on the resource URL
+      for (const fileCode of filesToDelete) {
+        try {
+          await axios.delete(`https://rpmshare.com/api/v1/video/manage/${fileCode}`, {
+            headers: { 'api-token': apiKey }
+          });
+          console.log(`   ✅ Deleted RPM File: ${fileCode}`);
+        } catch (err) {
+          console.error(`   ⚠️ Failed to delete RPM File ${fileCode}:`, err.response?.status);
+        }
+      }
+    }
+
+    // 2. DELETE FROM DATABASE
+    await Model.findByIdAndDelete(id);
+    res.json({ success: true, message: "Deleted from DB and Cloud" });
+
+  } catch (error) {
+    console.error("Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
 };
 
 // --- 3. HOMEPAGE MANAGEMENT ---
@@ -242,7 +298,7 @@ const fixDatabaseRules = async (req, res) => {
   }
 };
 
-// --- 7. REQUEST MANAGEMENT (NEW) ---
+// --- 7. REQUEST MANAGEMENT ---
 const getRequests = async (req, res) => {
   try {
     const requests = await Request.find().sort({ createdAt: -1 });
@@ -264,5 +320,5 @@ const deleteRequest = async (req, res) => {
 module.exports = {
   getRPMFiles, renameRPMFiles, getAllPosts, getPostDetails, updatePost, deletePost,
   getHomepageConfig, updateHomepageConfig, getDuplicates, deleteAllPosts, fixDatabaseRules,
-  getRequests, deleteRequest // <--- Added here
+  getRequests, deleteRequest
 };

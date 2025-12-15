@@ -8,20 +8,28 @@ const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// --- HELPER: Extract Year from Filename ---
+const extractYear = (rawTitle) => {
+  if (!rawTitle) return null;
+  const match = rawTitle.match(/[\(\[\.\s](\d{4})[\)\]\.\s]/);
+  return match ? match[1] : null;
+};
+
+// --- HELPER: Clean Title for Search ---
 const cleanTitle = (rawTitle) => {
   if (!rawTitle) return "";
   let cleaned = rawTitle;
-  cleaned = cleaned.replace(/\{.*?\}/g, "").replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "");
-  const junkRegex = /\b(1080p|720p|480p|2160p|4k|WEB-DL|WEBRip|BluRay|DVDRip|ESub|Dual\sAudio|Hindi|English|x264|x265|HEVC|AAC|DDP5\.1|H\.264)\b/gi;
-  cleaned = cleaned.replace(junkRegex, "");
+  cleaned = cleaned.replace(/\{.*?\}/g, "").replace(/\[.*?\]/g, "");
+  cleaned = cleaned.replace(/\(\d{4}\)/g, "");
   cleaned = cleaned.replace(/(\.| )?(mkv|mp4|avi|webm|flv)/gi, "");
+  const junkRegex = /\b(1080p|720p|480p|2160p|4k|5k|HDCAM|WEB-DL|WEBRip|BluRay|DVDRip|ESub|Dual\sAudio|Hindi|English|x264|x265|HEVC|AAC|DDP5\.1|H\.264|SKYFLIX|SkyFlix)\b/gi;
+  cleaned = cleaned.replace(junkRegex, "");
   cleaned = cleaned.replace(/[\.\-\_]/g, " ");
-  cleaned = cleaned.replace(/\s+/g, " ").trim();
-  return cleaned;
+  return cleaned.replace(/\s+/g, " ").trim();
 };
 
 const runBackgroundUpdate = async () => {
-  console.log("🚀 BACKGROUND JOB STARTED: Deep Fetch (With Genres)...");
+  console.log("🚀 BACKGROUND JOB STARTED: Smart Deep Fetch (Preserves Edits)...");
 
   let processing = true;
   let batchSize = 10; 
@@ -30,11 +38,13 @@ const runBackgroundUpdate = async () => {
 
   while (processing) {
     try {
-      // Find items that have no Genres recorded yet
+      // Find items that need metadata (missing TMDB ID, Genres, or Poster)
+      // Note: This might pick up manually edited items if they are still missing genres,
+      // so the logic below ensures we don't overwrite the manually edited parts.
       const criteria = {
         $or: [
           { tmdbId: null },
-          { genre_ids: { $size: 0 } }, // ✅ Also fix items that have IDs but no Genres
+          { genre_ids: { $size: 0 } }, 
           { poster_path: null }
         ]
       };
@@ -67,43 +77,66 @@ const runBackgroundUpdate = async () => {
           continue;
         }
 
+        let searchYear = item.releaseYear; 
+        if (!searchYear) searchYear = extractYear(rawName);
+
         try {
           const type = isSeries ? "tv" : "movie";
-          
-          if (!item.tmdbId || item.tmdbId === "NOT_FOUND" || item.tmdbId === "MANUAL_CHECK" || item.genre_ids.length === 0) {
-             const searchUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}&include_adult=true`;
-             console.log(`🔎 Searching: "${cleanQuery}"...`);
-             
-             const searchRes = await axios.get(searchUrl);
-             
-             if (searchRes.data.results?.length > 0) {
-                const bestMatch = searchRes.data.results[0];
-                item.tmdbId = bestMatch.id;
-                item.overview = bestMatch.overview;
-                item.poster_path = bestMatch.poster_path ? "https://image.tmdb.org/t/p/w500" + bestMatch.poster_path : "";
-                item.backdrop_path = bestMatch.backdrop_path ? "https://image.tmdb.org/t/p/original" + bestMatch.backdrop_path : "";
-                item.vote_average = bestMatch.vote_average;
-                
-                // ✅ CRITICAL FIX: Save the Genres!
-                item.genre_ids = bestMatch.genre_ids || []; 
-                
-                if (!isSeries) {
-                    item.title = bestMatch.title;
-                    item.release_date = bestMatch.release_date;
-                } else {
-                    item.name = bestMatch.name;
-                    item.first_air_date = bestMatch.first_air_date;
-                }
-                console.log(`✅ MATCHED: ${isSeries ? item.name : item.title} [Genres: ${item.genre_ids.length}]`);
-             } else {
-                console.log(`❌ No match: "${cleanQuery}"`);
-                item.tmdbId = "MANUAL_CHECK";
-                await item.save();
-                continue; 
-             }
+          let searchUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}&include_adult=true`;
+
+          if (searchYear) {
+             searchUrl += isSeries ? `&first_air_date_year=${searchYear}` : `&year=${searchYear}`;
           }
 
-          // Series Episode Fetching (Standard Logic)
+          console.log(`🔎 Searching: "${cleanQuery}" (Year: ${searchYear || "Any"})...`);
+             
+          const searchRes = await axios.get(searchUrl);
+             
+          if (searchRes.data.results?.length > 0) {
+            const bestMatch = searchRes.data.results[0];
+            
+            // --- 1. CORE IDS (Always Update) ---
+            const isFirstSync = !item.tmdbId || item.tmdbId === "NOT_FOUND"; // Flag to check if this is the first real sync
+            item.tmdbId = bestMatch.id;
+            item.genre_ids = bestMatch.genre_ids || []; 
+            item.vote_average = bestMatch.vote_average;
+
+            // --- 2. TEXT METADATA (Only if missing or default) ---
+            if (!item.overview || item.overview === "Syncing metadata..." || item.overview === "Syncing...") {
+                item.overview = bestMatch.overview;
+            }
+
+            // --- 3. IMAGES (Only if missing) ---
+            // If you edited the poster manually, 'item.poster_path' will exist, so we skip this.
+            if (!item.poster_path) {
+                item.poster_path = bestMatch.poster_path ? "https://image.tmdb.org/t/p/w500" + bestMatch.poster_path : "";
+            }
+            if (!item.backdrop_path) {
+                item.backdrop_path = bestMatch.backdrop_path ? "https://image.tmdb.org/t/p/original" + bestMatch.backdrop_path : "";
+            }
+
+            // --- 4. TITLES & DATES ---
+            // Only update title on first sync to allow manual renames to stick
+            if (!isSeries) {
+                if (isFirstSync && bestMatch.title) item.title = bestMatch.title;
+                if (!item.release_date) item.release_date = bestMatch.release_date;
+                if (bestMatch.release_date && !item.releaseYear) {
+                    item.releaseYear = parseInt(bestMatch.release_date.split('-')[0]);
+                }
+            } else {
+                if (isFirstSync && bestMatch.name) item.name = bestMatch.name;
+                if (!item.first_air_date) item.first_air_date = bestMatch.first_air_date;
+            }
+            
+            console.log(`   ✅ MATCHED: ${isSeries ? item.name : item.title}`);
+          } else {
+            console.log(`   ❌ No match found.`);
+            item.tmdbId = "MANUAL_CHECK"; 
+            await item.save();
+            continue; 
+          }
+
+          // --- 5. EPISODES (Only if Series) ---
           if (isSeries && item.tmdbId) {
              for (let sIndex = 0; sIndex < item.seasons.length; sIndex++) {
                 const season = item.seasons[sIndex];
@@ -111,12 +144,25 @@ const runBackgroundUpdate = async () => {
                     const seasonUrl = `${TMDB_BASE_URL}/tv/${item.tmdbId}/season/${season.season_number}?api_key=${TMDB_API_KEY}`;
                     const seasonRes = await axios.get(seasonUrl);
                     const tmdbEpisodes = seasonRes.data.episodes; 
+                    
                     season.episodes.forEach(localEp => {
                         const realEp = tmdbEpisodes.find(t => t.episode_number === localEp.episode_number);
                         if (realEp) {
-                            localEp.name = realEp.name; 
-                            localEp.overview = realEp.overview;
-                            localEp.still_path = realEp.still_path ? "https://image.tmdb.org/t/p/w500" + realEp.still_path : "";
+                            // Only update name if it looks generic (e.g., "Episode 1")
+                            const isGenericName = /^Episode \d+$/i.test(localEp.name);
+                            if (isGenericName || !localEp.name) {
+                                localEp.name = realEp.name; 
+                            }
+                            
+                            // Only update overview if missing
+                            if (!localEp.overview) {
+                                localEp.overview = realEp.overview;
+                            }
+
+                            // Only update still/thumbnail if missing
+                            if (!localEp.still_path) {
+                                localEp.still_path = realEp.still_path ? "https://image.tmdb.org/t/p/w500" + realEp.still_path : "";
+                            }
                         } 
                     });
                 } catch (e) {}
@@ -128,9 +174,9 @@ const runBackgroundUpdate = async () => {
           totalUpdated++;
 
         } catch (err) {
-          console.error(`⚠️ Error: ${err.message}`);
+          console.error(`   ⚠️ Error processing item: ${err.message}`);
         }
-        await sleep(250);
+        await sleep(250); 
       }
     } catch (err) {
       console.error("Critical Background Error:", err.message);
@@ -141,7 +187,7 @@ const runBackgroundUpdate = async () => {
 
 const fetchMetadata = async (req, res) => {
   runBackgroundUpdate();
-  res.json({ message: "Deep Sync Started! Fixing Genres & Posters..." });
+  res.json({ message: "Deep Sync Started! Fixing missing Genres & Posters (Preserving Manual Edits)..." });
 };
 
 module.exports = { fetchMetadata };
