@@ -88,6 +88,12 @@ const processItem = async (item) => {
                 const detailRes = await axios.get(detailUrl);
                 const details = detailRes.data;
 
+                // ✅ FIX: If Overview is missing, fill it now!
+                if ((!item.overview || item.overview === "") && details.overview) {
+                    item.overview = details.overview;
+                    modified = true;
+                }
+
                 // A. Regional Info
                 if (!item.original_language || item.original_language !== details.original_language) {
                     item.original_language = details.original_language;
@@ -182,7 +188,6 @@ const processItem = async (item) => {
                 item.markModified('seasons'); 
                 item.markModified('seasons.episodes'); 
             } else {
-                // 🌟 Mark Collection Info as modified
                 item.markModified('collectionInfo');
             }
             item.markModified('credits');
@@ -190,7 +195,7 @@ const processItem = async (item) => {
             item.markModified('keywords');
             
             await item.save();
-            return `💾 UPDATED: ${cleanQuery} (Col: ${!isSeries && item.collectionInfo ? "YES" : "NO"})`;
+            return `💾 UPDATED: ${cleanQuery} (Desc: ${item.overview ? "YES" : "NO"})`;
         }
         return null;
 
@@ -215,11 +220,13 @@ const runBackgroundUpdate = async () => {
                 { tmdbId: null },
                 { tmdbId: "MANUAL_CHECK" },
                 { poster_path: null },
-                { production_companies: { $exists: false } }, // Fetch for Premium data
+                // ✅ FIX: Force check for items with NO description
+                { overview: null }, 
+                { overview: "" },
+                
+                { production_companies: { $exists: false } },
                 { "seasons.episodes.still_path": null },
-                { "seasons.episodes.overview": null },
-                // 🌟 New Criterion: Check if collectionInfo is missing (optional but good for first run)
-                // { collectionInfo: { $exists: false } } 
+                { "seasons.episodes.overview": null }
             ]
         };
 
