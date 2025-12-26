@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 
 const MovieSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  // ✅ NEW: Explicitly store the extracted year for accurate matching
   releaseYear: { type: Number, index: true }, 
   
   overview: { type: String },
@@ -11,7 +10,51 @@ const MovieSchema = new mongoose.Schema({
   release_date: { type: String },
   vote_average: { type: Number, default: 0 },
 
-  // CORE FIELDS FOR SYNC
+  // --- 🌟 NEW: PREMIUM METADATA FIELDS (All Features) ---
+  
+  // 1. Regional Zones (Bollywood, Hollywood, K-Drama)
+  original_language: { type: String, index: true }, 
+
+  // 2. Franchise Hubs (Marvel, DC, Disney)
+  production_companies: [{ 
+    name: String, 
+    id: Number, 
+    logo_path: String 
+  }],
+
+  // 3. Smart Moods & "Vibe" Search
+  keywords: [{ name: String, id: Number }],
+
+  // 4. Cast & Crew (Director Collections)
+  credits: {
+    cast: [{
+      id: Number,
+      name: String,
+      character: String,
+      profile_path: String
+    }],
+    crew: [{
+      id: Number,
+      name: String,
+      job: String, // Filter for "Director" or "Writer"
+      profile_path: String
+    }]
+  },
+
+  // 5. Kids Mode & Parental Control
+  content_rating: { type: String }, 
+
+  // 6. 🌟 DYNAMIC COLLECTIONS (The New Feature)
+  // Stores "Avengers Collection", "Harry Potter Collection" info
+  collectionInfo: {
+    id: Number,
+    name: { type: String, index: true },
+    poster_path: String,
+    backdrop_path: String
+  },
+  // --------------------------------------------------
+
+  // CORE FIELDS
   fileCode: { type: String, unique: true, required: true },
   embedCode: { type: String },
   downloadLink: { type: String },
@@ -22,7 +65,9 @@ const MovieSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// ✅ NEW: Compound index to prevent duplicate titles in the same year at the DB level
+// Indexes for fast sorting and grouping
 MovieSchema.index({ title: 1, releaseYear: 1 });
+MovieSchema.index({ original_language: 1 });
+MovieSchema.index({ "collectionInfo.name": 1 }); // Important for grouping
 
 module.exports = mongoose.model("Movie", MovieSchema);
