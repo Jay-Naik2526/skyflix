@@ -1,44 +1,47 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const adminRoutes = require("./routes/adminRoutes");
-
-// -----------------------------------------------------
-// 1. IMPORT THE CONTENT ROUTES (Make sure this is here)
-// -----------------------------------------------------
-const contentRoutes = require("./routes/contentRoutes"); 
+const cookieParser = require("cookie-parser"); // 🌟 NEW: For reading auth cookies
 require("dotenv").config();
 
-// Load Models
-require("./models/Movie");
-require("./models/Series");
+// Import Routes
+const contentRoutes = require("./routes/contentRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const authRoutes = require("./routes/authRoutes"); // 🌟 NEW: Auth Routes
+const { fetchMetadata } = require("./controllers/metadataController");
+const { syncContent } = require("./controllers/syncController");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors({
-    origin: "*", 
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
+  origin: "http://localhost:5173", // Allow your Frontend
+  credentials: true // 🌟 IMPORTANT: Allows cookies to be sent back and forth
 }));
 app.use(express.json());
+app.use(cookieParser()); // 🌟 NEW: Activate cookie parser
 
+// Database Connection
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("🔥 MongoDB Connected Successfully"))
-  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
 // Routes
+app.use("/api/content", contentRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/auth", authRoutes); // 🌟 NEW: Mount Auth Routes
 
-// -----------------------------------------------------
-// 2. REGISTER THE CONTENT ROUTE (Crucial Step!)
-// -----------------------------------------------------
-app.use("/api/content", contentRoutes); 
+// Special Routes
+app.get("/api/metadata/fetch", fetchMetadata);
+app.get("/api/sync", syncContent);
 
+// Test Route
 app.get("/", (req, res) => {
-  res.send("JioHotstar Backend is Running!");
+  res.send("StreamHub API is Running...");
 });
 
+// Start Server
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
