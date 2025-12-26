@@ -6,15 +6,8 @@ require("dotenv").config();
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
-// Reduced sleep time significantly
+// Sleep to prevent rate limiting
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// --- HELPER: Extract Year ---
-const extractYear = (rawTitle) => {
-  if (!rawTitle) return null;
-  const match = rawTitle.match(/[\(\[\.\s](\d{4})[\)\]\.\s]/);
-  return match ? match[1] : null;
-};
 
 // --- HELPER: Clean Title ---
 const cleanTitle = (rawTitle) => {
@@ -33,7 +26,13 @@ const cleanTitle = (rawTitle) => {
   return cleaned.replace(/\s+/g, " ").trim();
 };
 
-// --- WORKER FUNCTION (Processes 1 item) ---
+const extractYear = (rawTitle) => {
+  if (!rawTitle) return null;
+  const match = rawTitle.match(/[\(\[\.\s](\d{4})[\)\]\.\s]/);
+  return match ? match[1] : null;
+};
+
+// --- WORKER FUNCTION ---
 const processItem = async (item) => {
     const isSeries = !!item.seasons;
     let modified = false;
@@ -43,11 +42,10 @@ const processItem = async (item) => {
 
     if (!cleanQuery) return null;
 
-    let searchYear = item.releaseYear; 
-    if (!searchYear) searchYear = extractYear(rawName);
+    let searchYear = item.releaseYear || extractYear(rawName);
 
     try {
-        // --- STEP 1: RESOLVE TMDB ID ---
+        // --- STEP 1: RESOLVE TMDB ID (If missing) ---
         if (!item.tmdbId || item.tmdbId === "MANUAL_CHECK") {
             const type = isSeries ? "tv" : "movie";
             let searchUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}&include_adult=true`;
@@ -55,6 +53,7 @@ const processItem = async (item) => {
 
             let searchRes = await axios.get(searchUrl);
 
+            // Retry without year if failed
             if (searchRes.data.results.length === 0 && searchYear) {
                 const fallbackUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}&include_adult=true`;
                 searchRes = await axios.get(fallbackUrl);
@@ -66,6 +65,7 @@ const processItem = async (item) => {
                 item.genre_ids = bestMatch.genre_ids || []; 
                 item.vote_average = bestMatch.vote_average;
                 
+                // Only set basic fields if missing
                 if (!item.poster_path) item.poster_path = bestMatch.poster_path ? "https://image.tmdb.org/t/p/w500" + bestMatch.poster_path : "";
                 if (!item.backdrop_path) item.backdrop_path = bestMatch.backdrop_path ? "https://image.tmdb.org/t/p/original" + bestMatch.backdrop_path : "";
                 if (!item.overview) item.overview = bestMatch.overview;
@@ -78,89 +78,104 @@ const processItem = async (item) => {
             }
         }
 
-        // --- STEP 2: FETCH DETAILS (Now with Collection Support) ---
+        // --- STEP 2: FETCH FULL DETAILS (Repair + Premium Upgrade) ---
         if (item.tmdbId && item.tmdbId !== "MANUAL_CHECK") {
-            const type = isSeries ? "tv" : "movie";
-            const append = isSeries ? "keywords,credits,content_ratings" : "keywords,credits,release_dates";
-            const detailUrl = `${TMDB_BASE_URL}/${type}/${item.tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=${append}`;
             
-            try {
-                const detailRes = await axios.get(detailUrl);
-                const details = detailRes.data;
+            // 🔍 CHECK: Treat "Syncing..." text as BAD/EMPTY
+            const currentOverview = item.overview ? item.overview.trim() : "";
+            const isPlaceholder = currentOverview === "Syncing metadata..." || currentOverview === "Fetching details..." || currentOverview === "Waiting for sync...";
+            const hasBadOverview = !currentOverview || isPlaceholder;
 
-                // ✅ FIX: If Overview is missing, fill it now!
-                if ((!item.overview || item.overview === "") && details.overview) {
-                    item.overview = details.overview;
-                    modified = true;
-                }
-
-                // A. Regional Info
-                if (!item.original_language || item.original_language !== details.original_language) {
-                    item.original_language = details.original_language;
-                    modified = true;
-                }
-
-                // B. Production Companies (Marvel, DC, etc.)
-                if (details.production_companies && (!item.production_companies || item.production_companies.length === 0)) {
-                    item.production_companies = details.production_companies.map(c => ({ name: c.name, id: c.id, logo_path: c.logo_path }));
-                    modified = true;
-                }
-
-                // C. Keywords (Moods)
-                if (details.keywords) {
-                    const kws = details.keywords.results || details.keywords.keywords;
-                    if (kws && (!item.keywords || item.keywords.length === 0)) {
-                        item.keywords = kws.map(k => ({ name: k.name, id: k.id }));
-                        modified = true;
-                    }
-                }
-
-                // D. Cast & Crew
-                if (details.credits && (!item.credits || !item.credits.cast || item.credits.cast.length === 0)) {
-                   item.credits = {
-                        cast: details.credits.cast.slice(0, 10).map(c => ({ id: c.id, name: c.name, character: c.character, profile_path: c.profile_path })),
-                        crew: details.credits.crew.filter(c => ["Director", "Writer", "Executive Producer"].includes(c.job)).slice(0, 5).map(c => ({ id: c.id, name: c.name, job: c.job, profile_path: c.profile_path }))
-                   };
-                   modified = true;
-                }
-
-                // E. 🌟 COLLECTION INFO (New Feature for Movies)
-                if (!isSeries && details.belongs_to_collection) {
-                    const col = details.belongs_to_collection;
-                    // Check if missing or different
-                    if (!item.collectionInfo || item.collectionInfo.id !== col.id) {
-                        item.collectionInfo = {
-                            id: col.id,
-                            name: col.name, // e.g., "The Avengers Collection"
-                            poster_path: col.poster_path ? "https://image.tmdb.org/t/p/w500" + col.poster_path : "",
-                            backdrop_path: col.backdrop_path ? "https://image.tmdb.org/t/p/original" + col.backdrop_path : ""
-                        };
-                        modified = true;
-                    }
-                }
-
-                // F. Content Ratings (Kids Mode)
-                let rating = null;
-                if (isSeries && details.content_ratings) {
-                    const usRating = details.content_ratings.results.find(r => r.iso_3166_1 === "US");
-                    rating = usRating ? usRating.rating : (details.content_ratings.results[0]?.rating || null);
-                } else if (!isSeries && details.release_dates) {
-                    const usRelease = details.release_dates.results.find(r => r.iso_3166_1 === "US");
-                    if (usRelease) {
-                        const certified = usRelease.release_dates.find(d => d.certification !== "");
-                        rating = certified ? certified.certification : null;
-                    }
-                }
+            const missingPremium = !item.production_companies || item.production_companies.length === 0;
+            
+            if (hasBadOverview || missingPremium) {
+                const type = isSeries ? "tv" : "movie";
+                const append = isSeries ? "keywords,credits,content_ratings" : "keywords,credits,release_dates";
+                const detailUrl = `${TMDB_BASE_URL}/${type}/${item.tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=${append}`;
                 
-                if (rating && item.content_rating !== rating) {
-                    item.content_rating = rating;
-                    modified = true;
-                }
+                try {
+                    const detailRes = await axios.get(detailUrl);
+                    const details = detailRes.data;
 
-            } catch (e) { /* Ignore detail errors */ }
+                    // A. Repair Description
+                    if (hasBadOverview) {
+                        if (details.overview) {
+                            item.overview = details.overview;
+                            modified = true;
+                        } else if (isPlaceholder) {
+                            // 🌟 STOP THE LOOP: If TMDB has no text, clear the "Syncing..." text so we don't check it again forever
+                            item.overview = ""; 
+                            modified = true;
+                        }
+                    }
+
+                    // B. Regional Info
+                    if (!item.original_language || item.original_language !== details.original_language) {
+                        item.original_language = details.original_language;
+                        modified = true;
+                    }
+
+                    // C. Production Companies (Marvel, DC, etc.)
+                    if (details.production_companies && (!item.production_companies || item.production_companies.length === 0)) {
+                        item.production_companies = details.production_companies.map(c => ({ name: c.name, id: c.id, logo_path: c.logo_path }));
+                        modified = true;
+                    }
+
+                    // D. Keywords (Moods)
+                    if (details.keywords) {
+                        const kws = details.keywords.results || details.keywords.keywords;
+                        if (kws && (!item.keywords || item.keywords.length === 0)) {
+                            item.keywords = kws.map(k => ({ name: k.name, id: k.id }));
+                            modified = true;
+                        }
+                    }
+
+                    // E. Cast & Crew
+                    if (details.credits && (!item.credits || !item.credits.cast || item.credits.cast.length === 0)) {
+                    item.credits = {
+                            cast: details.credits.cast.slice(0, 10).map(c => ({ id: c.id, name: c.name, character: c.character, profile_path: c.profile_path })),
+                            crew: details.credits.crew.filter(c => ["Director", "Writer", "Executive Producer"].includes(c.job)).slice(0, 5).map(c => ({ id: c.id, name: c.name, job: c.job, profile_path: c.profile_path }))
+                    };
+                    modified = true;
+                    }
+
+                    // F. 🌟 COLLECTION INFO (Collections)
+                    if (!isSeries && details.belongs_to_collection) {
+                        const col = details.belongs_to_collection;
+                        if (!item.collectionInfo || item.collectionInfo.id !== col.id) {
+                            item.collectionInfo = {
+                                id: col.id,
+                                name: col.name,
+                                poster_path: col.poster_path ? "https://image.tmdb.org/t/p/w500" + col.poster_path : "",
+                                backdrop_path: col.backdrop_path ? "https://image.tmdb.org/t/p/original" + col.backdrop_path : ""
+                            };
+                            modified = true;
+                        }
+                    }
+
+                    // G. Content Ratings (Kids Mode)
+                    let rating = null;
+                    if (isSeries && details.content_ratings) {
+                        const usRating = details.content_ratings.results.find(r => r.iso_3166_1 === "US");
+                        rating = usRating ? usRating.rating : (details.content_ratings.results[0]?.rating || null);
+                    } else if (!isSeries && details.release_dates) {
+                        const usRelease = details.release_dates.results.find(r => r.iso_3166_1 === "US");
+                        if (usRelease) {
+                            const certified = usRelease.release_dates.find(d => d.certification !== "");
+                            rating = certified ? certified.certification : null;
+                        }
+                    }
+                    
+                    if (rating && item.content_rating !== rating) {
+                        item.content_rating = rating;
+                        modified = true;
+                    }
+
+                } catch (e) { /* Ignore detail errors */ }
+            }
         }
 
-        // --- STEP 3: SYNC EPISODES (Optimized) ---
+        // --- STEP 3: SYNC EPISODES ---
         if (isSeries && item.tmdbId && item.tmdbId !== "MANUAL_CHECK") {
             const seasonPromises = item.seasons.map(async (season) => {
                 try {
@@ -179,7 +194,6 @@ const processItem = async (item) => {
                     }
                 } catch (e) { }
             });
-            
             await Promise.all(seasonPromises);
         }
 
@@ -195,7 +209,7 @@ const processItem = async (item) => {
             item.markModified('keywords');
             
             await item.save();
-            return `💾 UPDATED: ${cleanQuery} (Desc: ${item.overview ? "YES" : "NO"})`;
+            return `✅ UPDATED: ${cleanQuery} (Desc: ${item.overview && item.overview !== "" ? "YES" : "EMPTY"})`;
         }
         return null;
 
@@ -205,37 +219,46 @@ const processItem = async (item) => {
 };
 
 const runBackgroundUpdate = async () => {
-  console.log("🚀 TURBO JOB STARTED: Concurrent Fetching...");
+  console.log("🚀 MASTER SYNC STARTED: Fixing descriptions & adding premium data...");
 
   let processing = true;
-  let batchSize = 10; 
+  let batchSize = 20; 
   let totalUpdated = 0;
   const processedIds = new Set();
 
   while (processing) {
     try {
+        // 🌟 MASTER CRITERIA: Now catches "Syncing metadata..." explicitly
         const criteria = {
             _id: { $nin: Array.from(processedIds) },
             $or: [
                 { tmdbId: null },
                 { tmdbId: "MANUAL_CHECK" },
-                { poster_path: null },
-                // ✅ FIX: Force check for items with NO description
-                { overview: null }, 
-                { overview: "" },
                 
-                { production_companies: { $exists: false } },
+                // 1. Bad Description Checks (Updated)
+                { overview: null },      
+                { overview: "" },        
+                { overview: { $regex: /^\s*$/ } }, 
+                { overview: "Syncing metadata..." }, // 👈 CATCHES THE CULPRIT
+                { overview: "Fetching details..." },
+                { overview: "Waiting for sync..." },
+                
+                // 2. Missing Premium Checks (For new movies)
+                { production_companies: { $exists: false } }, 
+                { production_companies: { $size: 0 } },
+                
+                // 3. Missing Episode Data
                 { "seasons.episodes.still_path": null },
                 { "seasons.episodes.overview": null }
             ]
         };
 
-        const seriesBatch = await Series.find(criteria).sort({ createdAt: -1 }).limit(batchSize);
-        const moviesBatch = await Movie.find(criteria).sort({ createdAt: -1 }).limit(batchSize);
+        const seriesBatch = await Series.find(criteria).limit(batchSize);
+        const moviesBatch = await Movie.find(criteria).limit(batchSize);
         const newItems = [...seriesBatch, ...moviesBatch];
 
         if (newItems.length === 0) {
-            console.log(`🏁 ALL DONE! Total fixed: ${totalUpdated}`);
+            console.log(`🏁 SYNC COMPLETE! Total Items Processed: ${totalUpdated}`);
             processing = false;
             break;
         }
@@ -260,7 +283,7 @@ const runBackgroundUpdate = async () => {
 
 const fetchMetadata = async (req, res) => {
   runBackgroundUpdate();
-  res.json({ message: "Turbo Sync Started! Check console for high-speed logs." });
+  res.json({ message: "Master Sync Started! Check console." });
 };
 
 module.exports = { fetchMetadata };
