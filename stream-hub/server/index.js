@@ -1,25 +1,43 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const cookieParser = require("cookie-parser"); // 🌟 NEW: For reading auth cookies
+const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
 // Import Routes
 const contentRoutes = require("./routes/contentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
-const authRoutes = require("./routes/authRoutes"); // 🌟 NEW: Auth Routes
+const authRoutes = require("./routes/authRoutes");
 const { fetchMetadata } = require("./controllers/metadataController");
 const { syncContent } = require("./controllers/syncController");
 
 const app = express();
 
-// Middleware
+// 🌟 FIX: DYNAMIC CORS ORIGIN
+// This allows both Localhost AND your Vercel domain
+const allowedOrigins = [
+  "http://localhost:5173",
+  process.env.CLIENT_URL // We will add this to Render Env Variables
+];
+
 app.use(cors({
-  origin: "http://localhost:5173", // Allow your Frontend
-  credentials: true // 🌟 IMPORTANT: Allows cookies to be sent back and forth
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if the origin is in our allowed list
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes("vercel.app")) {
+      callback(null, true);
+    } else {
+      console.log("Blocked Origin:", origin); // Log blocked attempts for debugging
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true // Important for Cookies
 }));
+
 app.use(express.json());
-app.use(cookieParser()); // 🌟 NEW: Activate cookie parser
+app.use(cookieParser());
 
 // Database Connection
 mongoose.connect(process.env.MONGO_URI)
@@ -29,7 +47,7 @@ mongoose.connect(process.env.MONGO_URI)
 // Routes
 app.use("/api/content", contentRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/auth", authRoutes); // 🌟 NEW: Mount Auth Routes
+app.use("/api/auth", authRoutes);
 
 // Special Routes
 app.get("/api/metadata/fetch", fetchMetadata);
