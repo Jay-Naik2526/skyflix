@@ -13,27 +13,31 @@ const { syncContent } = require("./controllers/syncController");
 
 const app = express();
 
-// 🌟 FIX: DYNAMIC CORS ORIGIN
-// This allows both Localhost AND your Vercel domain
+// 🌟 FIX: CORS CONFIGURATION
 const allowedOrigins = [
-  "http://localhost:5173",
-  process.env.CLIENT_URL // We will add this to Render Env Variables
+  "http://localhost:5173",          // Local Development
+  "https://skyflix.qzz.io",         // 🌟 YOUR PRODUCTION DOMAIN (Exact Match)
+  process.env.CLIENT_URL            // From Render Environment Variables
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl, or Postman)
     if (!origin) return callback(null, true);
     
-    // Check if the origin is in our allowed list
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes("vercel.app")) {
+    // Check if the origin is allowed
+    if (
+      allowedOrigins.includes(origin) || 
+      origin.endsWith(".vercel.app") ||  // Allow any Vercel subdomain
+      origin.endsWith(".qzz.io")         // Allow any subdomains of your custom domain
+    ) {
       callback(null, true);
     } else {
-      console.log("Blocked Origin:", origin); // Log blocked attempts for debugging
+      console.log("🚫 CORS Blocked:", origin); // Logs the blocked URL to Render console
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true // Important for Cookies
+  credentials: true // 🌟 CRITICAL: Allows Cookies/Login to work
 }));
 
 app.use(express.json());
