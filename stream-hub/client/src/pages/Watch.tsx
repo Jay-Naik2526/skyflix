@@ -1,17 +1,47 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
+import { updateWatchHistory } from "../services/api"; // 👈 Import API
 
 export default function Watch() {
   const navigate = useNavigate();
   const location = useLocation();
   const movie = location.state?.movie; 
+  const seriesData = location.state?.seriesData; // 👈 Received from DetailModal
 
   useEffect(() => {
     if (!movie) {
       navigate("/");
+      return;
     }
-  }, [movie, navigate]);
+
+    // 🌟 HEARTBEAT: Save History every 60 seconds
+    const saveProgress = () => {
+        const isSeries = !!seriesData;
+        
+        // If it's a series, we link to the Main Series ID, but save season/ep info
+        // If it's a movie, we just link to the Movie ID
+        const contentId = isSeries ? seriesData._id : movie._id;
+        const onModel = isSeries ? "Series" : "Movie";
+
+        updateWatchHistory({
+            contentId,
+            onModel,
+            season: isSeries ? movie.season_number : undefined,
+            episode: isSeries ? movie.episode_number : undefined,
+            progress: 0, // With embeds, we just mark it as "Recently Watched"
+            duration: 0
+        });
+    };
+
+    // 1. Save immediately when opening
+    saveProgress();
+
+    // 2. Save every minute (so it stays fresh in "Continue Watching")
+    const interval = setInterval(saveProgress, 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [movie, seriesData, navigate]);
 
   if (!movie) return null;
 

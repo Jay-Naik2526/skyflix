@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchMovies, fetchSeries } from "../services/api";
+import { fetchMovies, fetchSeries, getMe } from "../services/api"; // ✅ 1. Added getMe
 import HeroBanner from "../components/HeroBanner";
 import Row from "../components/Row";
 import { useOutletContext } from "react-router-dom";
@@ -17,6 +17,7 @@ const GENRE_MAP: Record<string, string> = {
 export default function Home() {
   const [heroMovies, setHeroMovies] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]); // ✅ 2. Added History State
   const [loading, setLoading] = useState(true);
 
   const context = useOutletContext<any>();
@@ -26,10 +27,12 @@ export default function Home() {
     const loadContent = async () => {
       setLoading(true);
       try {
-        // 1. FETCH CONTENT
-        const [movieRes, seriesRes] = await Promise.all([
+        // 1. FETCH CONTENT & USER HISTORY
+        // ✅ 3. Modified Promise.all to fetch User History too
+        const [movieRes, seriesRes, userData] = await Promise.all([
           fetchMovies(1, 150),
-          fetchSeries(1, 150)
+          fetchSeries(1, 150),
+          getMe().catch(() => null) // Fail silently if not logged in
         ]);
 
         const movies = movieRes.data || [];
@@ -45,11 +48,24 @@ export default function Home() {
         const allSeries = series.map(processItem);
         const allContent = [...allMovies, ...allSeries];
 
+        // ✅ 4. PROCESS WATCH HISTORY (New Logic Inserted Here)
+        if (userData && userData.watchHistory) {
+            const formattedHistory = userData.watchHistory.map((item: any) => {
+                if (!item.contentId) return null;
+                return {
+                    ...item.contentId,
+                    _id: item.contentId._id,
+                    displaySubtitle: item.season ? `S${item.season} E${item.episode}` : "Resume",
+                    progress: item.progress 
+                };
+            }).filter(Boolean);
+            setHistory(formattedHistory);
+        }
+
         // 3. BUILD AUTOMATIC COLLECTIONS
         const builtSections: any[] = [];
 
         // --- A. FRANCHISE HUBS (Marvel, DC) ---
-        // FIX: Added (item: any) to all filters below
         const marvelItems = allContent.filter((item: any) => 
           item.production_companies?.some((c: any) => c.name.toLowerCase().includes("marvel")) ||
           item.keywords?.some((k: any) => k.name === "marvel comic" || k.name === "superhero")
@@ -63,7 +79,6 @@ export default function Home() {
         if (dcItems.length > 0) builtSections.push({ title: "DC Multiverse", data: dcItems });
 
         // --- B. REGIONAL ZONES (Bollywood, K-Drama) ---
-        // This was the specific error line (Line 68)
         const bollywoodItems = allContent.filter((item: any) => item.original_language === "hi");
         if (bollywoodItems.length > 0) builtSections.push({ title: "Bollywood Hits 🇮🇳", data: bollywoodItems });
 
@@ -92,7 +107,6 @@ export default function Home() {
         // --- E. 🌟 DYNAMIC FRANCHISE COLLECTIONS 🌟 ---
         const collections: Record<string, any[]> = {};
 
-        // FIX: Added (item: any) here too
         allContent.forEach((item: any) => {
           let key = null;
 
@@ -162,6 +176,12 @@ export default function Home() {
     <div className="min-h-screen bg-[#0f1014] text-white overflow-x-hidden pb-20 relative">
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8 pl-4 md:pl-12">
+        
+        {/* ✅ 5. INSERTED CONTINUE WATCHING ROW HERE */}
+        {history.length > 0 && (
+            <Row title="Continue Watching" data={history} onMovieClick={onMovieClick} />
+        )}
+
         {sections.map((section, index) => (
           <Row
             key={index}

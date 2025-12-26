@@ -1,46 +1,40 @@
 const mongoose = require("mongoose");
 
-// Sub-schema for Watch History (Stores where you left off)
+// Sub-schema for Watch History
 const HistoryItemSchema = new mongoose.Schema({
-  contentId: { type: mongoose.Schema.Types.ObjectId, required: true, refPath: 'onModel' }, // Links to Movie/Series
+  contentId: { type: mongoose.Schema.Types.ObjectId, required: true, refPath: 'onModel' }, // Dynamic Link
   onModel: { type: String, required: true, enum: ['Movie', 'Series'] },
   
-  // For Series only
+  // Series Specifics
   seriesId: { type: mongoose.Schema.Types.ObjectId, ref: 'Series' }, 
   season: { type: Number },
   episode: { type: Number },
   
-  // Progress tracking
-  progress: { type: Number, default: 0 }, // In seconds
-  duration: { type: Number, default: 0 }, // Total seconds
+  // Progress
+  progress: { type: Number, default: 0 }, 
+  duration: { type: Number, default: 0 }, 
   lastWatched: { type: Date, default: Date.now }
-});
-
-// Sub-schema for My List (Watchlist)
-const MyListItemSchema = new mongoose.Schema({
-  contentId: { type: mongoose.Schema.Types.ObjectId, required: true, refPath: 'onModel' },
-  onModel: { type: String, required: true, enum: ['Movie', 'Series'] },
-  addedAt: { type: Date, default: Date.now }
 });
 
 const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  password: { type: String, required: true }, // Will be hashed
+  password: { type: String, required: true },
   
   avatar: { 
     type: String, 
     default: "https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png" 
   },
-
-  // The "Netflix" Features
-  watchHistory: [HistoryItemSchema],
-  myList: [MyListItemSchema],
   
-  // Simple preference tracking for future AI
-  likedGenres: [{ type: String }], 
+  watchHistory: [HistoryItemSchema], // ✅ History Array
+  
+  myList: [{
+    contentId: { type: mongoose.Schema.Types.ObjectId, refPath: 'onModel' },
+    onModel: { type: String, enum: ['Movie', 'Series'] },
+    addedAt: { type: Date, default: Date.now }
+  }],
 
-  createdAt: { type: Date, default: Date.now }
-});
+  isAdmin: { type: Boolean, default: false },
+}, { timestamps: true });
 
 module.exports = mongoose.model("User", UserSchema);

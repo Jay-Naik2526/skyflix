@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { register, login, getMe, logout } = require("../controllers/authController");
+const { register, login, getMe, logout, updateHistory } = require("../controllers/authController"); // 👈 Import updateHistory
 const { protect } = require("../middleware/authMiddleware");
 
 // Public Routes (No Login Required)
@@ -9,7 +9,7 @@ router.post("/login", login);
 router.post("/logout", logout);
 
 // Protected Routes (Login Required)
-// 'protect' checks the cookie before letting them see their profile
 router.get("/me", protect, getMe);
+router.post("/history", protect, updateHistory); // 👈 NEW: Save Watch Progress
 
 module.exports = router;

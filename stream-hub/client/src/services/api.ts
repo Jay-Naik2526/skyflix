@@ -52,6 +52,21 @@ export const getMe = async () => {
   return res.json();
 };
 
+// ✅ NEW: Update Watch History
+export const updateWatchHistory = async (data: any) => {
+  try {
+    const res = await fetch(`${API_URL}/auth/history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      credentials: "include", // Important for cookies
+    });
+    return await res.json();
+  } catch (error) {
+    console.error("Failed to update history", error);
+  }
+};
+
 // ==========================================
 // 🎬 CONTENT API
 // ==========================================
@@ -88,7 +103,6 @@ export const fetchSeries = async (page = 1, limit = 24) => {
   }
 };
 
-// ✅ FIX: Restored Search Function
 export const searchContent = async (query: string) => {
   try {
     if (!query) return [];
@@ -131,7 +145,6 @@ export const fetchStats = async () => {
   }
 };
 
-// ✅ FIX: Restored Admin Content Functions
 export const updateContent = async (id: string, updates: any) => {
   const res = await fetch(`${API_URL}/admin/content/${id}`, {
     method: "PUT",

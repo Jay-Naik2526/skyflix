@@ -3,6 +3,7 @@ import { Dialog, DialogPanel, DialogBackdrop } from "@headlessui/react";
 import { X, Play, Star, Calendar, Download, ImageIcon, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+// ... (Constants and Helpers remain the same) ...
 const AD_URL = "https://geneticallydetection.com/z5re0ci0?key=5a2d63984f2aea7c121135c4b7469782";
 
 const cleanTitle = (title: string) => {
@@ -65,7 +66,8 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
         
         const adKey = `ad_view_${movie._id}_S${firstSeason.season_number}_E${firstEp.episode_number}`;
         checkAdAndProceed(adKey, () => {
-            navigate("/watch", { state: { movie: firstEp, parentPoster: movie.backdrop_path } });
+            // ✅ UPDATED: Pass seriesData
+            navigate("/watch", { state: { movie: firstEp, parentPoster: movie.backdrop_path, seriesData: movie } });
             onClose();
         });
       } else {
@@ -74,6 +76,7 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
     } else {
       const adKey = `ad_view_${movie._id}`;
       checkAdAndProceed(adKey, () => {
+          // Movie doesn't need seriesData
           navigate("/watch", { state: { movie: movie } });
           onClose();
       });
@@ -85,7 +88,8 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
     const adKey = `ad_view_${movie._id}_S${seasonNum}_E${ep.episode_number}`;
     
     checkAdAndProceed(adKey, () => {
-        navigate("/watch", { state: { movie: ep, parentPoster: movie.backdrop_path } });
+        // ✅ UPDATED: Pass seriesData
+        navigate("/watch", { state: { movie: ep, parentPoster: movie.backdrop_path, seriesData: movie } });
         onClose();
     });
   };
@@ -110,16 +114,11 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
           className="
             w-full bg-[#16181f] shadow-2xl border-t border-white/10 flex flex-col md:flex-row overflow-hidden
             transition duration-300 data-[closed]:translate-y-full md:data-[closed]:translate-y-0 md:data-[closed]:opacity-0
-            
-            /* MOBILE STYLES: Bottom Sheet, Rounded Top only, 85% Height */
             fixed bottom-0 h-[85vh] rounded-t-3xl 
-            
-            /* DESKTOP STYLES: Centered Modal, Fixed Height 85% (Fixes scrolling) */
             md:relative md:bottom-auto md:h-[85vh] md:max-w-6xl md:rounded-2xl md:border
           "
         >
-            
-            {/* Desktop Poster Side */}
+            {/* Poster Side */}
             <div className="hidden md:block w-[350px] relative flex-shrink-0 bg-black">
               {posterUrl ? (
                 <img src={posterUrl} alt={displayTitle} className="w-full h-full object-cover opacity-90" />
@@ -131,15 +130,12 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
 
             {/* Content Area */}
             <div className="flex-1 flex flex-col h-full overflow-hidden">
-              
-              {/* Drag Handle (Mobile Visual) */}
               <div className="md:hidden w-full flex justify-center pt-3 pb-1">
                 <div className="w-12 h-1.5 bg-gray-700 rounded-full" />
               </div>
 
               <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar relative">
                 
-                {/* Close Button */}
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-50">
                     <X size={20} />
                 </button>
@@ -148,14 +144,12 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
                     {displayTitle}
                 </h2>
                 
-                {/* Metadata Tags */}
                 <div className="flex flex-wrap items-center gap-3 text-xs md:text-sm text-gray-400 font-bold mb-6">
                     <span className="flex items-center gap-1 text-yellow-400"><Star size={14} fill="currentColor" /> {movie.vote_average?.toFixed(1)}</span>
                     <span className="flex items-center gap-1"><Calendar size={14} /> {new Date(movie.release_date || movie.first_air_date || movie.createdAt).getFullYear()}</span>
                     <span className="px-2 py-0.5 border border-white/20 rounded text-[10px] uppercase text-white tracking-wider">{isSeries ? "Series" : "Movie"}</span>
                 </div>
 
-                {/* Buttons (Stacked on Mobile) */}
                 <div className="flex flex-col md:flex-row gap-3 mb-8">
                     <button onClick={handlePlayMain} className="flex items-center justify-center gap-2 px-6 py-3.5 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition-colors w-full md:w-auto">
                         <Play fill="black" size={18} /> {playButtonLabel}
@@ -169,10 +163,8 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
                     {movie.overview}
                 </p>
 
-                {/* --- EPISODES LIST --- */}
                 {isSeries && sortedSeasons.length > 0 && (
                   <div className="space-y-4 mt-8 border-t border-white/10 pt-6">
-                    
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-white">Episodes</h3>
                       <div className="relative">
@@ -198,8 +190,6 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
                           const stillUrl = getImageUrl(ep.still_path, 'w500');
                           return (
                             <div key={ep.episode_number} className="group flex gap-3 p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-all active:scale-[0.98]">
-                              
-                              {/* Episode Thumbnail */}
                               <div 
                                   className="w-28 h-16 bg-black/50 rounded flex-shrink-0 overflow-hidden relative cursor-pointer"
                                   onClick={() => handleEpisodeClick(ep)}
