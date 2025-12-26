@@ -13,11 +13,11 @@ const { syncContent } = require("./controllers/syncController");
 
 const app = express();
 
-// 🌟 FIX: CORS CONFIGURATION
+// 🌟 FIX: BETTER CORS FOR LOCALHOST & PRODUCTION
 const allowedOrigins = [
-  "http://localhost:5173",          // Local Development
-  "https://skyflix.qzz.io",         // 🌟 YOUR PRODUCTION DOMAIN (Exact Match)
-  process.env.CLIENT_URL            // From Render Environment Variables
+  "http://localhost:5173",          
+  "https://skyflix.qzz.io",         
+  process.env.CLIENT_URL            
 ];
 
 app.use(cors({
@@ -25,15 +25,16 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps, curl, or Postman)
     if (!origin) return callback(null, true);
     
-    // Check if the origin is allowed
+    // 🌟 OPTIMIZED CHECK: Allow any Localhost, Vercel, or Custom Domain
     if (
       allowedOrigins.includes(origin) || 
-      origin.endsWith(".vercel.app") ||  // Allow any Vercel subdomain
-      origin.endsWith(".qzz.io")         // Allow any subdomains of your custom domain
+      origin.includes("localhost") ||    // ✅ Allow ANY localhost port (Fixes Cookie Issues)
+      origin.endsWith(".vercel.app") ||  
+      origin.endsWith(".qzz.io")         
     ) {
       callback(null, true);
     } else {
-      console.log("🚫 CORS Blocked:", origin); // Logs the blocked URL to Render console
+      console.log("🚫 CORS Blocked:", origin); 
       callback(new Error('Not allowed by CORS'));
     }
   },

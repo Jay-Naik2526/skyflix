@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchMovies, fetchSeries, getMe } from "../services/api"; // ✅ 1. Added getMe
+import { fetchMovies, fetchSeries, getMe } from "../services/api"; 
 import HeroBanner from "../components/HeroBanner";
 import Row from "../components/Row";
 import { useOutletContext } from "react-router-dom";
@@ -17,7 +17,7 @@ const GENRE_MAP: Record<string, string> = {
 export default function Home() {
   const [heroMovies, setHeroMovies] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]); // ✅ 2. Added History State
+  const [history, setHistory] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
   const context = useOutletContext<any>();
@@ -28,11 +28,15 @@ export default function Home() {
       setLoading(true);
       try {
         // 1. FETCH CONTENT & USER HISTORY
-        // ✅ 3. Modified Promise.all to fetch User History too
+        // ✅ KEPT: Fetching 150 items as requested to maintain category density
         const [movieRes, seriesRes, userData] = await Promise.all([
           fetchMovies(1, 150),
           fetchSeries(1, 150),
-          getMe().catch(() => null) // Fail silently if not logged in
+          // ✅ FIX: Added silent fail check so page loads even if user is guest
+          getMe().catch(err => {
+              console.warn("⚠️ User not logged in or Cookie failed:", err.message);
+              return null;
+          })
         ]);
 
         const movies = movieRes.data || [];
@@ -48,24 +52,31 @@ export default function Home() {
         const allSeries = series.map(processItem);
         const allContent = [...allMovies, ...allSeries];
 
-        // ✅ 4. PROCESS WATCH HISTORY (New Logic Inserted Here)
-        if (userData && userData.watchHistory) {
+        // ✅ 3. PROCESS WATCH HISTORY (FIXED)
+        // This flattens the nested structure so the 'Row' component can read it
+        if (userData && userData.watchHistory && userData.watchHistory.length > 0) {
             const formattedHistory = userData.watchHistory.map((item: any) => {
+                // Double check that contentId (the movie object) exists
                 if (!item.contentId) return null;
+
                 return {
-                    ...item.contentId,
-                    _id: item.contentId._id,
-                    displaySubtitle: item.season ? `S${item.season} E${item.episode}` : "Resume",
+                    ...item.contentId, // Spreads title, poster_path, etc.
+                    _id: item.contentId._id, // Ensure ID is at the top level
+                    type: item.onModel, // "Movie" or "Series"
+                    displaySubtitle: item.season ? `S${item.season} E${item.episode}` : "Resume", 
                     progress: item.progress 
                 };
-            }).filter(Boolean);
+            }).filter(Boolean); // Remove any nulls (broken links)
+
             setHistory(formattedHistory);
+        } else {
+            console.log("ℹ️ No History to display (User is guest or history empty)");
         }
 
-        // 3. BUILD AUTOMATIC COLLECTIONS
+        // 4. BUILD AUTOMATIC COLLECTIONS (Restored Original Logic)
         const builtSections: any[] = [];
 
-        // --- A. FRANCHISE HUBS (Marvel, DC) ---
+        // --- A. FRANCHISE HUBS ---
         const marvelItems = allContent.filter((item: any) => 
           item.production_companies?.some((c: any) => c.name.toLowerCase().includes("marvel")) ||
           item.keywords?.some((k: any) => k.name === "marvel comic" || k.name === "superhero")
@@ -78,21 +89,21 @@ export default function Home() {
         );
         if (dcItems.length > 0) builtSections.push({ title: "DC Multiverse", data: dcItems });
 
-        // --- B. REGIONAL ZONES (Bollywood, K-Drama) ---
+        // --- B. REGIONAL ZONES ---
         const bollywoodItems = allContent.filter((item: any) => item.original_language === "hi");
         if (bollywoodItems.length > 0) builtSections.push({ title: "Bollywood Hits 🇮🇳", data: bollywoodItems });
 
         const kDramaItems = allSeries.filter((item: any) => item.original_language === "ko");
         if (kDramaItems.length > 0) builtSections.push({ title: "K-Drama & Korean Hits 🇰🇷", data: kDramaItems });
 
-        // --- C. ANIME WORLD (Japanese + Animation) ---
+        // --- C. ANIME WORLD ---
         const animeItems = allContent.filter((item: any) => 
           (item.original_language === "ja" && item.displayGenres.includes("Animation")) ||
           item.keywords?.some((k: any) => k.name === "anime")
         );
         if (animeItems.length > 0) builtSections.push({ title: "Anime World 🇯🇵", data: animeItems });
 
-        // --- D. KIDS ZONE (Safe Content) ---
+        // --- D. KIDS ZONE ---
         const kidsItems = allContent.filter((item: any) => {
           const isAdult = item.content_rating === "R" || item.content_rating === "TV-MA";
           if (isAdult) return false;
@@ -103,19 +114,13 @@ export default function Home() {
         const pureKids = kidsItems.filter((k: any) => !animeItems.includes(k)); 
         if (pureKids.length > 0) builtSections.push({ title: "Kids & Family 🎈", data: pureKids });
 
-
-        // --- E. 🌟 DYNAMIC FRANCHISE COLLECTIONS 🌟 ---
+        // --- E. DYNAMIC FRANCHISE COLLECTIONS ---
         const collections: Record<string, any[]> = {};
-
         allContent.forEach((item: any) => {
           let key = null;
-
-          // Strategy 1: Official TMDB Collection
           if (item.collectionInfo?.name) {
              key = item.collectionInfo.name.replace(" Collection", ""); 
-          }
-          // Strategy 2: Smart Name Matching
-          else {
+          } else {
              const rawTitle = item.title || item.name || "";
              const match = rawTitle.match(/^([a-zA-Z\s]+)/); 
              if (match && match[1].trim().length > 3) {
@@ -123,14 +128,12 @@ export default function Home() {
                  if (root.length > 4) key = root; 
              }
           }
-
           if (key) {
              if (!collections[key]) collections[key] = [];
              collections[key].push(item);
           }
         });
 
-        // Filter: Only show collections with MORE THAN 2 items
         Object.keys(collections).sort().forEach(key => {
             const items = collections[key];
             if (items.length > 2) {
@@ -140,14 +143,11 @@ export default function Home() {
                 }
             }
         });
-        // ------------------------------------------------
-
 
         // --- F. STANDARD ROWS ---
         if (allMovies.length > 0) builtSections.push({ title: "Latest Movies", data: allMovies.slice(0, 20) });
         if (allSeries.length > 0) builtSections.push({ title: "Latest TV Shows", data: allSeries.slice(0, 20) });
 
-        // --- G. HOLLYWOOD ---
         const hollywoodItems = allContent.filter((item: any) => item.original_language === "en");
         if (hollywoodItems.length > 0) builtSections.push({ title: "Hollywood Blockbusters", data: hollywoodItems.slice(0, 20) });
 
@@ -177,7 +177,7 @@ export default function Home() {
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8 pl-4 md:pl-12">
         
-        {/* ✅ 5. INSERTED CONTINUE WATCHING ROW HERE */}
+        {/* ✅ Continue Watching Row - Shows only when history exists */}
         {history.length > 0 && (
             <Row title="Continue Watching" data={history} onMovieClick={onMovieClick} />
         )}

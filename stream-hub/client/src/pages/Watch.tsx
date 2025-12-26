@@ -1,13 +1,13 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
-import { updateWatchHistory } from "../services/api"; // 👈 Import API
+import { updateWatchHistory } from "../services/api"; 
 
 export default function Watch() {
   const navigate = useNavigate();
   const location = useLocation();
   const movie = location.state?.movie; 
-  const seriesData = location.state?.seriesData; // 👈 Received from DetailModal
+  const seriesData = location.state?.seriesData; 
 
   useEffect(() => {
     if (!movie) {
@@ -27,9 +27,10 @@ export default function Watch() {
         updateWatchHistory({
             contentId,
             onModel,
+            // ✅ Works now because DetailModal is sending 'season_number'
             season: isSeries ? movie.season_number : undefined,
             episode: isSeries ? movie.episode_number : undefined,
-            progress: 0, // With embeds, we just mark it as "Recently Watched"
+            progress: 0, 
             duration: 0
         });
     };

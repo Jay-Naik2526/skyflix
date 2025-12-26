@@ -3,7 +3,6 @@ import { Dialog, DialogPanel, DialogBackdrop } from "@headlessui/react";
 import { X, Play, Star, Calendar, Download, ImageIcon, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-// ... (Constants and Helpers remain the same) ...
 const AD_URL = "https://geneticallydetection.com/z5re0ci0?key=5a2d63984f2aea7c121135c4b7469782";
 
 const cleanTitle = (title: string) => {
@@ -66,8 +65,14 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
         
         const adKey = `ad_view_${movie._id}_S${firstSeason.season_number}_E${firstEp.episode_number}`;
         checkAdAndProceed(adKey, () => {
-            // ✅ UPDATED: Pass seriesData
-            navigate("/watch", { state: { movie: firstEp, parentPoster: movie.backdrop_path, seriesData: movie } });
+            // ✅ FIX: Inject season_number explicitly
+            navigate("/watch", { 
+              state: { 
+                movie: { ...firstEp, season_number: firstSeason.season_number }, 
+                parentPoster: movie.backdrop_path, 
+                seriesData: movie 
+              } 
+            });
             onClose();
         });
       } else {
@@ -76,7 +81,6 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
     } else {
       const adKey = `ad_view_${movie._id}`;
       checkAdAndProceed(adKey, () => {
-          // Movie doesn't need seriesData
           navigate("/watch", { state: { movie: movie } });
           onClose();
       });
@@ -88,8 +92,14 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
     const adKey = `ad_view_${movie._id}_S${seasonNum}_E${ep.episode_number}`;
     
     checkAdAndProceed(adKey, () => {
-        // ✅ UPDATED: Pass seriesData
-        navigate("/watch", { state: { movie: ep, parentPoster: movie.backdrop_path, seriesData: movie } });
+        // ✅ FIX: Inject season_number explicitly
+        navigate("/watch", { 
+          state: { 
+            movie: { ...ep, season_number: seasonNum }, 
+            parentPoster: movie.backdrop_path, 
+            seriesData: movie 
+          } 
+        });
         onClose();
     });
   };
@@ -102,22 +112,10 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
 
   return (
     <Dialog open={isOpen} onClose={onClose} className="relative z-[100]">
-      
-      <DialogBackdrop 
-        transition
-        className="fixed inset-0 bg-black/90 backdrop-blur-sm transition duration-300 data-[closed]:opacity-0"
-      />
-
+      <DialogBackdrop transition className="fixed inset-0 bg-black/90 backdrop-blur-sm transition duration-300 data-[closed]:opacity-0" />
       <div className="fixed inset-0 flex items-end md:items-center justify-center p-0 md:p-4">
-        <DialogPanel 
-          transition
-          className="
-            w-full bg-[#16181f] shadow-2xl border-t border-white/10 flex flex-col md:flex-row overflow-hidden
-            transition duration-300 data-[closed]:translate-y-full md:data-[closed]:translate-y-0 md:data-[closed]:opacity-0
-            fixed bottom-0 h-[85vh] rounded-t-3xl 
-            md:relative md:bottom-auto md:h-[85vh] md:max-w-6xl md:rounded-2xl md:border
-          "
-        >
+        <DialogPanel transition className="w-full bg-[#16181f] shadow-2xl border-t border-white/10 flex flex-col md:flex-row overflow-hidden transition duration-300 data-[closed]:translate-y-full md:data-[closed]:translate-y-0 md:data-[closed]:opacity-0 fixed bottom-0 h-[85vh] rounded-t-3xl md:relative md:bottom-auto md:h-[85vh] md:max-w-6xl md:rounded-2xl md:border">
+            
             {/* Poster Side */}
             <div className="hidden md:block w-[350px] relative flex-shrink-0 bg-black">
               {posterUrl ? (
@@ -135,7 +133,6 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
               </div>
 
               <div className="flex-1 p-6 md:p-8 overflow-y-auto custom-scrollbar relative">
-                
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-50">
                     <X size={20} />
                 </button>
