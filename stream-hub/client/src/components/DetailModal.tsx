@@ -31,9 +31,22 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
   const navigate = useNavigate();
   const [selectedSeasonIndex, setSelectedSeasonIndex] = useState(0);
 
+  // ✅ FIX: Auto-select the correct season if coming from "Continue Watching"
   useEffect(() => {
-    if (isOpen) {
-      setSelectedSeasonIndex(0);
+    if (isOpen && movie) {
+      if (movie.season && movie.seasons) {
+         // Find which index matches the season number from history
+         const sorted = [...movie.seasons].sort((a: any, b: any) => a.season_number - b.season_number);
+         const foundIndex = sorted.findIndex((s: any) => s.season_number === Number(movie.season));
+         
+         if (foundIndex !== -1) {
+             setSelectedSeasonIndex(foundIndex);
+         } else {
+             setSelectedSeasonIndex(0);
+         }
+      } else {
+        setSelectedSeasonIndex(0);
+      }
     }
   }, [isOpen, movie]);
 
@@ -41,7 +54,13 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
 
   const displayTitle = cleanTitle(movie.title || movie.name);
   const isSeries = movie.type === "Series" || (movie.seasons && movie.seasons.length > 0);
-  const playButtonLabel = isSeries ? "Play S1 E1" : "Start Movie";
+  
+  // ✅ FIX: Dynamic Button Label
+  let playButtonLabel = isSeries ? "Play S1 E1" : "Start Movie";
+  if (isSeries && movie.season && movie.episode) {
+      playButtonLabel = `Resume S${movie.season} E${movie.episode}`;
+  }
+
   const posterUrl = getImageUrl(movie.poster_path, 'w500');
 
   const sortedSeasons = isSeries && movie.seasons ? [...movie.seasons]
@@ -59,13 +78,34 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
 
   const handlePlayMain = () => {
     if (isSeries) {
+      // ✅ FIX: "Resume" Logic - Check if we have history data
+      if (movie.season && movie.episode && sortedSeasons.length > 0) {
+          const targetSeason = sortedSeasons.find((s:any) => s.season_number === Number(movie.season));
+          const targetEp = targetSeason?.episodes?.find((e:any) => e.episode_number === Number(movie.episode));
+
+          if (targetEp) {
+             const adKey = `ad_view_${movie._id}_S${movie.season}_E${movie.episode}`;
+             checkAdAndProceed(adKey, () => {
+                navigate("/watch", { 
+                  state: { 
+                    movie: { ...targetEp, season_number: movie.season }, 
+                    parentPoster: movie.backdrop_path, 
+                    seriesData: movie // Pass full series data so Next Episode button works
+                  } 
+                });
+                onClose();
+            });
+            return;
+          }
+      }
+
+      // Default Play Logic (S1 E1)
       const firstSeason = sortedSeasons[0];
       if (firstSeason && firstSeason.episodes?.length > 0) {
         const firstEp = [...firstSeason.episodes].sort((a:any, b:any) => a.episode_number - b.episode_number)[0];
         
         const adKey = `ad_view_${movie._id}_S${firstSeason.season_number}_E${firstEp.episode_number}`;
         checkAdAndProceed(adKey, () => {
-            // ✅ FIX: Inject season_number explicitly
             navigate("/watch", { 
               state: { 
                 movie: { ...firstEp, season_number: firstSeason.season_number }, 
@@ -79,6 +119,7 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
         alert("No episodes available.");
       }
     } else {
+      // Movie Logic
       const adKey = `ad_view_${movie._id}`;
       checkAdAndProceed(adKey, () => {
           navigate("/watch", { state: { movie: movie } });
@@ -92,7 +133,6 @@ export default function DetailModal({ isOpen, movie, onClose }: DetailModalProps
     const adKey = `ad_view_${movie._id}_S${seasonNum}_E${ep.episode_number}`;
     
     checkAdAndProceed(adKey, () => {
-        // ✅ FIX: Inject season_number explicitly
         navigate("/watch", { 
           state: { 
             movie: { ...ep, season_number: seasonNum }, 

@@ -44,24 +44,41 @@ export default function Row({ title, data, isNumbered = false, onMovieClick }: R
           {data.map((item, index) => {
             const rating = item.vote_average ? item.vote_average.toFixed(1) : "N/A";
             
+            // ✅ FIX 1: Prioritize Episode Poster (Continue Watching) -> Season Poster -> Main Poster
+            const displayImage = item.episodePoster || item.poster_path;
+
+            // ✅ FIX 2: Check for a custom subtitle (S1 E4: The Body) or fallback to Year
+            const displaySubtitle = item.displaySubtitle || 
+                                    (item.release_date ? item.release_date.split("-")[0] : 
+                                    item.first_air_date ? item.first_air_date.split("-")[0] : "2024");
+
             return (
               <div 
                 key={item._id || item.id || index}
-                onClick={() => onMovieClick(item)}
+                onClick={() => onMovieClick(item)} // ✅ Passes full item (with season/episode) to App.tsx
                 className={`relative flex-none cursor-pointer transition-all duration-300 hover:scale-105 hover:z-10 group/card ${
-                  // ✅ FIX: Smaller Cards on Mobile (110px vs 160px)
                   isNumbered ? "w-[140px] md:w-[240px]" : "w-[110px] md:w-[200px]"
                 }`}
               >
                 
                 <div className="relative rounded-lg overflow-hidden aspect-[2/3] shadow-lg shadow-black/50 border border-white/5">
                   <img 
-                    src={item.poster_path} 
+                    src={displayImage} 
                     alt={item.title || item.name} 
                     className="w-full h-full object-cover transition-opacity duration-300 group-hover/card:opacity-80"
                     loading="lazy"
                   />
                   
+                  {/* Progress Bar (Optional Visual Touch for Continue Watching) */}
+                  {item.progress > 0 && (
+                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-700">
+                        <div 
+                          className="h-full bg-red-600" 
+                          style={{ width: `${(item.progress / item.duration) * 100}%` }} 
+                        />
+                     </div>
+                  )}
+
                   <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity duration-300">
                     <div className="bg-white/20 backdrop-blur-sm p-3 rounded-full border border-white/50">
                       <Play fill="white" className="text-white" size={24} />
@@ -82,8 +99,9 @@ export default function Row({ title, data, isNumbered = false, onMovieClick }: R
                     </h3>
                     
                     <div className="flex items-center justify-between mt-1">
-                      <span className="text-gray-400 text-[10px] md:text-xs">
-                        {item.release_date ? item.release_date.split("-")[0] : item.first_air_date ? item.first_air_date.split("-")[0] : "2024"}
+                      {/* ✅ FIX 3: Display the Episode info (S1 E4) instead of just the Year */}
+                      <span className={`text-[10px] md:text-xs truncate max-w-[70%] ${item.displaySubtitle ? "text-blue-400 font-medium" : "text-gray-400"}`}>
+                        {displaySubtitle}
                       </span>
 
                       <div className="flex items-center gap-1 bg-[#16181f] border border-white/10 px-1.5 py-0.5 rounded text-[9px] md:text-[10px] text-yellow-400 font-bold">

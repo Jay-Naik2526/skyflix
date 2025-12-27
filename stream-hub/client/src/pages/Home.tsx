@@ -35,7 +35,6 @@ export default function Home() {
         const movies = movieRes.data || [];
         const seriesData = seriesRes.data || [];
 
-        // ✅ Fixed TypeScript implicit 'any' by adding (item: any)
         const processItem = (item: any) => ({
           ...item,
           displayGenres: item.genre_ids?.map((id: string) => GENRE_MAP[id] || "Other") || []
@@ -43,34 +42,48 @@ export default function Home() {
 
         const allMovies = movies.map(processItem);
         const allSeries = seriesData.map(processItem);
-        const allContent = [...allMovies, ...allSeries];
+        const allContent = [...allMovies, ...allSeries]; // Full database of content in memory
 
-        // ✅ Precise History Processing
+        // ✅ FIX: Hydrate History with Full Series Data
         if (userData && userData.watchHistory && userData.watchHistory.length > 0) {
             const seenIds = new Set();
+            
             const uniqueHistory = userData.watchHistory
-                .filter((item: any) => {
-                    const idStr = item.contentId.toString();
-                    if (seenIds.has(idStr)) return false;
+                .map((historyItem: any) => {
+                    const idStr = historyItem.contentId.toString();
+                    if (seenIds.has(idStr)) return null;
                     seenIds.add(idStr);
-                    return true;
+
+                    // Find the FULL content object (contains seasons, episodes, etc.)
+                    const fullContent = allContent.find(c => c._id === idStr || c.id === idStr);
+
+                    if (!fullContent) return null; // Skip if content is not available
+
+                    // Merge History Progress INTO Full Content Object
+                    return {
+                        ...fullContent, // Has .seasons, .overview etc.
+                        // Overwrite with History specific data
+                        season: historyItem.season, // Current specific season
+                        episode: historyItem.episode, // Current specific episode
+                        episodeTitle: historyItem.episodeTitle,
+                        
+                        // Use episode poster for the row, fall back to main poster
+                        poster_path: historyItem.episodePoster || historyItem.poster_path || fullContent.poster_path,
+                        
+                        // Custom subtitle for Row.tsx
+                        displaySubtitle: historyItem.season 
+                            ? `S${historyItem.season} E${historyItem.episode}` 
+                            : "Resume"
+                    };
                 })
-                .map((item: any) => ({
-                    ...item,
-                    _id: item.contentId, 
-                    id: item.contentId,
-                    type: item.onModel,
-                    season: item.season,
-                    episode: item.episode,
-                    displaySubtitle: item.season ? `S${item.season} E${item.episode}: ${item.episodeTitle}` : "Resume"
-                }));
+                .filter(Boolean); // Remove nulls
 
             setHistory(uniqueHistory);
         }
 
         const builtSections: any[] = [];
 
-        // ✅ Fixed TypeScript errors by adding (i: any) to filters
+        // --- Categories Logic (Unchanged) ---
         const marvelItems = allContent.filter((i: any) => 
           i.production_companies?.some((c: any) => c.name.toLowerCase().includes("marvel")) ||
           i.keywords?.some((k: any) => k.name === "marvel comic")
@@ -123,10 +136,14 @@ export default function Home() {
     loadContent();
   }, []);
 
-  if (loading) return <div className="min-h-screen bg-[#0f1014] flex items-center justify-center animate-spin text-blue-600">Loading...</div>;
+  if (loading) return (
+    <div className="min-h-screen bg-[#0f1014] flex items-center justify-center">
+      <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#0f1014] text-white pb-20 relative">
+    <div className="min-h-screen bg-[#0f1014] text-white overflow-x-hidden pb-20 relative">
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8 pl-4 md:pl-12">
         {history.length > 0 && (
