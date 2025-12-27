@@ -13,11 +13,14 @@ const { syncContent } = require("./controllers/syncController");
 
 const app = express();
 
-// 🌟 FIX: BETTER CORS FOR LOCALHOST & PRODUCTION
+// ✅ FIX 1: Trust Proxy (REQUIRED for Secure Cookies on Render/Heroku/Vercel)
+app.set("trust proxy", 1);
+
+// 🌟 OPTIMIZED CORS FOR PRODUCTION
 const allowedOrigins = [
   "http://localhost:5173",          
-  "https://skyflix.qzz.io",         
-  process.env.CLIENT_URL            
+  "https://skyflix.qzz.io",
+  process.env.CLIENT_URL // Ensure this is set in your .env file!
 ];
 
 app.use(cors({
@@ -25,10 +28,10 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps, curl, or Postman)
     if (!origin) return callback(null, true);
     
-    // 🌟 OPTIMIZED CHECK: Allow any Localhost, Vercel, or Custom Domain
+    // Check allowed origins
     if (
       allowedOrigins.includes(origin) || 
-      origin.includes("localhost") ||    // ✅ Allow ANY localhost port (Fixes Cookie Issues)
+      origin.includes("localhost") ||    
       origin.endsWith(".vercel.app") ||  
       origin.endsWith(".qzz.io")         
     ) {
@@ -38,7 +41,7 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true // 🌟 CRITICAL: Allows Cookies/Login to work
+  credentials: true // ✅ Allows Cookies/Login to work
 }));
 
 app.use(express.json());

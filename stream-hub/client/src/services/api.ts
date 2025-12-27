@@ -18,7 +18,7 @@ export const registerUser = async (userData: any) => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData),
-    credentials: "include", 
+    credentials: "include", // ✅ Required for Cookies
   });
   if (!res.ok) throw await res.json();
   return res.json();
@@ -29,7 +29,7 @@ export const loginUser = async (userData: any) => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData),
-    credentials: "include",
+    credentials: "include", // ✅ Required for Cookies
   });
   if (!res.ok) throw await res.json();
   return res.json();
@@ -38,7 +38,7 @@ export const loginUser = async (userData: any) => {
 export const logoutUser = async () => {
   const res = await fetch(`${API_URL}/auth/logout`, {
     method: "POST",
-    credentials: "include",
+    credentials: "include", // ✅ Required for Cookies
   });
   return res.json();
 };
@@ -46,7 +46,7 @@ export const logoutUser = async () => {
 export const getMe = async () => {
   const res = await fetch(`${API_URL}/auth/me`, {
     method: "GET",
-    credentials: "include",
+    credentials: "include", // ✅ Required for Cookies
   });
   if (!res.ok) throw new Error("Not authorized");
   return res.json();
@@ -59,7 +59,7 @@ export const updateWatchHistory = async (data: any) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-      credentials: "include", // Important for cookies
+      credentials: "include", 
     });
     return await res.json();
   } catch (error) {
