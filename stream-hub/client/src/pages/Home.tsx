@@ -4,7 +4,6 @@ import HeroBanner from "../components/HeroBanner";
 import Row from "../components/Row";
 import { useOutletContext } from "react-router-dom";
 
-// --- TMDB GENRE ID MAP ---
 const GENRE_MAP: Record<string, string> = {
   "28": "Action", "12": "Adventure", "16": "Animation", "35": "Comedy",
   "80": "Crime", "99": "Documentary", "18": "Drama", "10751": "Family",
@@ -27,135 +26,95 @@ export default function Home() {
     const loadContent = async () => {
       setLoading(true);
       try {
-        // 1. FETCH CONTENT & USER HISTORY
-        // ✅ KEPT: Fetching 150 items as requested to maintain category density
         const [movieRes, seriesRes, userData] = await Promise.all([
           fetchMovies(1, 150),
           fetchSeries(1, 150),
-          // ✅ FIX: Added silent fail check so page loads even if user is guest
-          getMe().catch(err => {
-              console.warn("⚠️ User not logged in or Cookie failed:", err.message);
-              return null;
-          })
+          getMe().catch(() => null)
         ]);
 
         const movies = movieRes.data || [];
-        const series = seriesRes.data || [];
+        const seriesData = seriesRes.data || [];
 
-        // 2. PROCESS ITEMS
+        // ✅ Fixed TypeScript implicit 'any' by adding (item: any)
         const processItem = (item: any) => ({
           ...item,
           displayGenres: item.genre_ids?.map((id: string) => GENRE_MAP[id] || "Other") || []
         });
 
         const allMovies = movies.map(processItem);
-        const allSeries = series.map(processItem);
+        const allSeries = seriesData.map(processItem);
         const allContent = [...allMovies, ...allSeries];
 
-        // ✅ 3. PROCESS WATCH HISTORY (FIXED)
-        // This flattens the nested structure so the 'Row' component can read it
+        // ✅ Precise History Processing
         if (userData && userData.watchHistory && userData.watchHistory.length > 0) {
-            const formattedHistory = userData.watchHistory.map((item: any) => {
-                // Double check that contentId (the movie object) exists
-                if (!item.contentId) return null;
+            const seenIds = new Set();
+            const uniqueHistory = userData.watchHistory
+                .filter((item: any) => {
+                    const idStr = item.contentId.toString();
+                    if (seenIds.has(idStr)) return false;
+                    seenIds.add(idStr);
+                    return true;
+                })
+                .map((item: any) => ({
+                    ...item,
+                    _id: item.contentId, 
+                    id: item.contentId,
+                    type: item.onModel,
+                    season: item.season,
+                    episode: item.episode,
+                    displaySubtitle: item.season ? `S${item.season} E${item.episode}: ${item.episodeTitle}` : "Resume"
+                }));
 
-                return {
-                    ...item.contentId, // Spreads title, poster_path, etc.
-                    _id: item.contentId._id, // Ensure ID is at the top level
-                    type: item.onModel, // "Movie" or "Series"
-                    displaySubtitle: item.season ? `S${item.season} E${item.episode}` : "Resume", 
-                    progress: item.progress 
-                };
-            }).filter(Boolean); // Remove any nulls (broken links)
-
-            setHistory(formattedHistory);
-        } else {
-            console.log("ℹ️ No History to display (User is guest or history empty)");
+            setHistory(uniqueHistory);
         }
 
-        // 4. BUILD AUTOMATIC COLLECTIONS (Restored Original Logic)
         const builtSections: any[] = [];
 
-        // --- A. FRANCHISE HUBS ---
-        const marvelItems = allContent.filter((item: any) => 
-          item.production_companies?.some((c: any) => c.name.toLowerCase().includes("marvel")) ||
-          item.keywords?.some((k: any) => k.name === "marvel comic" || k.name === "superhero")
+        // ✅ Fixed TypeScript errors by adding (i: any) to filters
+        const marvelItems = allContent.filter((i: any) => 
+          i.production_companies?.some((c: any) => c.name.toLowerCase().includes("marvel")) ||
+          i.keywords?.some((k: any) => k.name === "marvel comic")
         );
         if (marvelItems.length > 0) builtSections.push({ title: "Marvel Universe", data: marvelItems });
 
-        const dcItems = allContent.filter((item: any) => 
-          item.production_companies?.some((c: any) => c.name.toLowerCase().includes("dc entertainment") || c.name.toLowerCase().includes("dc comics")) ||
-          item.keywords?.some((k: any) => k.name === "dc comics")
+        const dcItems = allContent.filter((i: any) => 
+          i.production_companies?.some((c: any) => c.name.toLowerCase().includes("dc entertainment")) ||
+          i.keywords?.some((k: any) => k.name === "dc comics")
         );
         if (dcItems.length > 0) builtSections.push({ title: "DC Multiverse", data: dcItems });
 
-        // --- B. REGIONAL ZONES ---
-        const bollywoodItems = allContent.filter((item: any) => item.original_language === "hi");
+        const bollywoodItems = allContent.filter((i: any) => i.original_language === "hi");
         if (bollywoodItems.length > 0) builtSections.push({ title: "Bollywood Hits 🇮🇳", data: bollywoodItems });
 
-        const kDramaItems = allSeries.filter((item: any) => item.original_language === "ko");
+        const kDramaItems = allSeries.filter((i: any) => i.original_language === "ko");
         if (kDramaItems.length > 0) builtSections.push({ title: "K-Drama & Korean Hits 🇰🇷", data: kDramaItems });
 
-        // --- C. ANIME WORLD ---
-        const animeItems = allContent.filter((item: any) => 
-          (item.original_language === "ja" && item.displayGenres.includes("Animation")) ||
-          item.keywords?.some((k: any) => k.name === "anime")
+        const animeItems = allContent.filter((i: any) => 
+          (i.original_language === "ja" && i.displayGenres.includes("Animation")) ||
+          i.keywords?.some((k: any) => k.name === "anime")
         );
         if (animeItems.length > 0) builtSections.push({ title: "Anime World 🇯🇵", data: animeItems });
 
-        // --- D. KIDS ZONE ---
-        const kidsItems = allContent.filter((item: any) => {
-          const isAdult = item.content_rating === "R" || item.content_rating === "TV-MA";
-          if (isAdult) return false;
-          const hasKidsGenre = item.displayGenres.includes("Family") || item.displayGenres.includes("Animation");
-          const hasKidsKeyword = item.keywords?.some((k: any) => ["cartoon", "kids", "children"].includes(k.name));
-          return hasKidsGenre || hasKidsKeyword;
-        });
-        const pureKids = kidsItems.filter((k: any) => !animeItems.includes(k)); 
-        if (pureKids.length > 0) builtSections.push({ title: "Kids & Family 🎈", data: pureKids });
-
-        // --- E. DYNAMIC FRANCHISE COLLECTIONS ---
         const collections: Record<string, any[]> = {};
         allContent.forEach((item: any) => {
-          let key = null;
           if (item.collectionInfo?.name) {
-             key = item.collectionInfo.name.replace(" Collection", ""); 
-          } else {
-             const rawTitle = item.title || item.name || "";
-             const match = rawTitle.match(/^([a-zA-Z\s]+)/); 
-             if (match && match[1].trim().length > 3) {
-                 const root = match[1].trim().split(" ").slice(0, 2).join(" "); 
-                 if (root.length > 4) key = root; 
-             }
-          }
-          if (key) {
+             const key = item.collectionInfo.name.replace(" Collection", ""); 
              if (!collections[key]) collections[key] = [];
              collections[key].push(item);
           }
         });
 
         Object.keys(collections).sort().forEach(key => {
-            const items = collections[key];
-            if (items.length > 2) {
-                const isDuplicate = builtSections.some(s => s.title.toLowerCase().includes(key.toLowerCase()));
-                if (!isDuplicate) {
-                    builtSections.push({ title: `${key} Collection`, data: items });
-                }
-            }
+            if (collections[key].length > 2) builtSections.push({ title: `${key} Collection`, data: collections[key] });
         });
 
-        // --- F. STANDARD ROWS ---
         if (allMovies.length > 0) builtSections.push({ title: "Latest Movies", data: allMovies.slice(0, 20) });
         if (allSeries.length > 0) builtSections.push({ title: "Latest TV Shows", data: allSeries.slice(0, 20) });
 
-        const hollywoodItems = allContent.filter((item: any) => item.original_language === "en");
-        if (hollywoodItems.length > 0) builtSections.push({ title: "Hollywood Blockbusters", data: hollywoodItems.slice(0, 20) });
-
         setSections(builtSections);
         setHeroMovies(allMovies.slice(0, 6)); 
-
       } catch (error) {
-        console.error("Error loading home content:", error);
+        console.error("Home loading error:", error);
       } finally {
         setLoading(false);
       }
@@ -164,31 +123,17 @@ export default function Home() {
     loadContent();
   }, []);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#0f1014] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen bg-[#0f1014] flex items-center justify-center animate-spin text-blue-600">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-[#0f1014] text-white overflow-x-hidden pb-20 relative">
+    <div className="min-h-screen bg-[#0f1014] text-white pb-20 relative">
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8 pl-4 md:pl-12">
-        
-        {/* ✅ Continue Watching Row - Shows only when history exists */}
         {history.length > 0 && (
             <Row title="Continue Watching" data={history} onMovieClick={onMovieClick} />
         )}
-
         {sections.map((section, index) => (
-          <Row
-            key={index}
-            title={section.title}
-            data={section.data}
-            onMovieClick={onMovieClick}
-          />
+          <Row key={index} title={section.title} data={section.data} onMovieClick={onMovieClick} />
         ))}
       </div>
     </div>
