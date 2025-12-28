@@ -9,8 +9,8 @@ let lastCacheTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes
 
 // --- HELPER: Lightweight Select Fields ---
-// We exclude heavy fields (credits, embedCode) to make the download instant
-const CARD_FIELDS = "title name poster_path backdrop_path vote_average release_date first_air_date genre_ids original_language overview collectionInfo production_companies keywords content_rating";
+// ✅ FIX: Added 'fileCode' and 'embedCode' so the player works!
+const CARD_FIELDS = "title name poster_path backdrop_path vote_average release_date first_air_date genre_ids original_language overview collectionInfo production_companies keywords content_rating fileCode embedCode tmdbId";
 
 // --- HELPER: Sort Series ---
 const sortSeries = (seriesList) => {
@@ -30,16 +30,14 @@ const sortSeries = (seriesList) => {
 // --- 1. GET OPTIMIZED HOME CONTENT ---
 const getHomeContent = async (req, res) => {
   try {
-    // 1. Check Cache (Instant Response)
+    // 1. Check Cache
     if (homeCache && (Date.now() - lastCacheTime < CACHE_DURATION)) {
-        console.log("🚀 Serving Home Content from Cache");
         return res.json(homeCache);
     }
 
     console.log("🔄 Calculating Home Content (DB Hit)...");
 
-    // 2. Fetch Data in Parallel (Optimized Queries)
-    // We replicate your EXACT frontend filters here using Database Queries
+    // 2. Fetch Data in Parallel
     const [
         latestMovies,
         latestSeries,
@@ -59,7 +57,7 @@ const getHomeContent = async (req, res) => {
         Movie.find({ poster_path: { $ne: null } }).sort({ createdAt: -1 }).limit(20).select(CARD_FIELDS).lean(),
         Series.find({ poster_path: { $ne: null } }).sort({ createdAt: -1 }).limit(20).select(CARD_FIELDS).lean(),
 
-        // Marvel (Regex search for 'marvel')
+        // Marvel
         Movie.find({ $or: [{ "production_companies.name": /marvel/i }, { "keywords.name": /marvel/i }] }).select(CARD_FIELDS).lean(),
         Series.find({ $or: [{ "production_companies.name": /marvel/i }, { "keywords.name": /marvel/i }] }).select(CARD_FIELDS).lean(),
 
@@ -71,11 +69,11 @@ const getHomeContent = async (req, res) => {
         Movie.find({ original_language: "hi" }).select(CARD_FIELDS).lean(),
         Series.find({ original_language: "ko" }).select(CARD_FIELDS).lean(),
 
-        // Anime (Japanese + Animation genre OR 'anime' keyword)
+        // Anime
         Movie.find({ original_language: "ja", $or: [{ genre_ids: "16" }, { "keywords.name": "anime" }] }).select(CARD_FIELDS).lean(),
         Series.find({ original_language: "ja", $or: [{ genre_ids: "16" }, { "keywords.name": "anime" }] }).select(CARD_FIELDS).lean(),
 
-        // Kids (Exclude Adult, Include Family/Animation/Kids keywords)
+        // Kids
         Movie.find({ 
             content_rating: { $nin: ["R", "TV-MA"] },
             $or: [{ genre_ids: { $in: ["10751", "16"] } }, { "keywords.name": /cartoon|kids|children/i }] 
@@ -85,24 +83,21 @@ const getHomeContent = async (req, res) => {
             $or: [{ genre_ids: { $in: ["10751", "16"] } }, { "keywords.name": /cartoon|kids|children/i }] 
         }).select(CARD_FIELDS).lean(),
 
-        // Dynamic Collections (Any item with collectionInfo)
+        // Dynamic Collections
         Movie.find({ "collectionInfo.name": { $exists: true, $ne: null } }).select(CARD_FIELDS).lean()
     ]);
 
-    // 3. Process & Merge Data
+    // 3. Process & Merge
     const normalize = (items, type) => items.map(i => ({ ...i, type }));
 
-    // Merge Series & Movies for sections
     const marvelContent = [...normalize(marvelMovies, "Movie"), ...normalize(marvelSeries, "Series")];
     const dcContent = [...normalize(dcMovies, "Movie"), ...normalize(dcSeries, "Series")];
     const animeContent = [...normalize(animeMovies, "Movie"), ...normalize(animeSeries, "Series")];
     
-    // Filter Kids content (Exclude Anime from Kids section if overlapping)
     const rawKids = [...normalize(kidsMovies, "Movie"), ...normalize(kidsSeries, "Series")];
     const animeIds = new Set(animeContent.map(a => a._id.toString()));
     const pureKids = rawKids.filter(k => !animeIds.has(k._id.toString()));
 
-    // Build Dynamic Collections (e.g., "Avengers Collection")
     const collections = {};
     collectionItems.forEach(item => {
         if (item.collectionInfo?.name) {
@@ -112,7 +107,7 @@ const getHomeContent = async (req, res) => {
         }
     });
 
-    // 4. Construct Sections (Order matters!)
+    // 4. Construct Sections
     const sections = [];
 
     if (marvelContent.length > 0) sections.push({ title: "Marvel Universe", data: marvelContent });
@@ -122,23 +117,20 @@ const getHomeContent = async (req, res) => {
     if (animeContent.length > 0) sections.push({ title: "Anime World 🇯🇵", data: animeContent });
     if (pureKids.length > 0) sections.push({ title: "Kids & Family 🎈", data: pureKids });
 
-    // Add Dynamic Collections
     Object.keys(collections).sort().forEach(key => {
         if (collections[key].length > 2) {
             sections.push({ title: `${key} Collection`, data: collections[key] });
         }
     });
 
-    // Add Standard Rows
     if (latestMovies.length > 0) sections.push({ title: "Latest Movies", data: normalize(latestMovies, "Movie") });
     if (latestSeries.length > 0) sections.push({ title: "New Episodes", data: normalize(sortSeries(latestSeries), "Series") });
 
     const payload = {
-        banner: normalize(latestMovies.slice(0, 6), "Movie"), // Top 6 movies as banner
+        banner: normalize(latestMovies.slice(0, 6), "Movie"),
         sections
     };
 
-    // 5. Save to Cache
     homeCache = payload;
     lastCacheTime = Date.now();
 
@@ -153,10 +145,9 @@ const getHomeContent = async (req, res) => {
 // --- 2. GET ALL MOVIES (Optimized) ---
 const getMovies = async (req, res) => {
   try {
-    // Only select what we need for the grid, NOT the whole object
     const movies = await Movie.find()
         .sort({ createdAt: -1 })
-        .select(CARD_FIELDS) 
+        .select(CARD_FIELDS) // ✅ Includes embedCode now
         .lean();
     res.json(movies.map(m => ({ ...m, type: "Movie" })));
   } catch (error) {
@@ -169,7 +160,7 @@ const getSeries = async (req, res) => {
   try {
     let series = await Series.find()
         .sort({ createdAt: -1 })
-        .select(CARD_FIELDS)
+        .select(CARD_FIELDS) // ✅ Includes embedCode now
         .lean();
     res.json(series.map(s => ({ ...s, type: "Series" })));
   } catch (error) {
@@ -177,7 +168,7 @@ const getSeries = async (req, res) => {
   }
 };
 
-// --- 4. SEARCH FUNCTION (Optimized) ---
+// --- 4. SEARCH FUNCTION ---
 const searchContent = async (req, res) => {
   const { query } = req.query;
   if (!query) return res.json([]);
