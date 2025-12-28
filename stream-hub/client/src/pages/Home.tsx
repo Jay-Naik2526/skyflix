@@ -4,6 +4,8 @@ import HeroBanner from "../components/HeroBanner";
 import Row from "../components/Row";
 import { useOutletContext } from "react-router-dom";
 
+// ❌ REMOVED: Unused GENRE_MAP constant
+
 export default function Home() {
   const [heroMovies, setHeroMovies] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
@@ -30,52 +32,45 @@ export default function Home() {
             setSections(homeRes.sections || []);
         }
 
-        // 3. Process Watch History (The Fix)
+        // 3. Process Watch History
         if (userData && userData.watchHistory && userData.watchHistory.length > 0) {
             const seenIds = new Set();
             
-            // We need a lookup map for "All Content" to try and find extra details
             // Flatten the sections to search for matches efficiently
             const allAvailableContent = homeRes?.sections?.flatMap((s: any) => s.data) || [];
 
             const uniqueHistory = userData.watchHistory
                 .map((historyItem: any) => {
-                    // Prevent Duplicates
                     const idStr = historyItem.contentId.toString();
                     if (seenIds.has(idStr)) return null;
                     seenIds.add(idStr);
 
                     // Try to find the full object in the currently loaded content
-                    // This adds extra data like "seasons" if available
                     const fullContent = allAvailableContent.find((c: any) => c._id === idStr || c.id === idStr);
 
-                    // ✅ FIX: Use stored metadata if full content is missing
-                    // This ensures the row APPEARS even if the movie isn't in the top 150
+                    // Merge saved history with whatever we found (or empty object)
                     return {
-                        // Base data from History (Database)
+                        // 1. Start with what we saved in DB
+                        ...historyItem, 
+                        
+                        // 2. Add full details if found
+                        ...(fullContent || {}),
+
+                        // 3. Ensure IDs and Type are correct
                         _id: historyItem.contentId,
                         id: historyItem.contentId,
-                        title: historyItem.title || fullContent?.title,
-                        name: historyItem.title || fullContent?.name, // Handle series naming
-                        poster_path: historyItem.episodePoster || historyItem.poster_path || fullContent?.poster_path,
-                        backdrop_path: fullContent?.backdrop_path || historyItem.poster_path,
-                        
-                        // Type & Logic
                         type: historyItem.onModel || fullContent?.type || "Movie",
-                        season: historyItem.season,
-                        episode: historyItem.episode,
-                        episodeTitle: historyItem.episodeTitle,
                         
-                        // Merge in full details (seasons array, overview) ONLY if found
-                        ...(fullContent || {}), 
-
-                        // Display Subtitle for the Card
+                        // 4. Fallback logic for Poster
+                        poster_path: historyItem.episodePoster || historyItem.poster_path || fullContent?.poster_path,
+                        
+                        // 5. Build Subtitle
                         displaySubtitle: historyItem.season 
                             ? `S${historyItem.season} E${historyItem.episode}` 
                             : "Resume"
                     };
                 })
-                .filter(Boolean); // Remove nulls from duplicate check
+                .filter(Boolean);
 
             setHistory(uniqueHistory);
         }
@@ -101,7 +96,7 @@ export default function Home() {
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8 pl-4 md:pl-12">
         
-        {/* ✅ Continue Watching Row */}
+        {/* Continue Watching Row */}
         {history.length > 0 && (
             <Row title="Continue Watching" data={history} onMovieClick={onMovieClick} />
         )}

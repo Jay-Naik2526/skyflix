@@ -10,6 +10,6 @@ router.post("/logout", logout);
 
 // Protected Routes (Login Required)
 router.get("/me", protect, getMe);
-router.post("/history", protect, updateHistory); // 👈 NEW: Save Watch Progress
+router.put("/history", protect, updateHistory);// 👈 NEW: Save Watch Progress
 
 module.exports = router;

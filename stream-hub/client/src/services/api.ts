@@ -56,7 +56,7 @@ export const getMe = async () => {
 export const updateWatchHistory = async (data: any) => {
   try {
     const res = await fetch(`${API_URL}/auth/history`, {
-      method: "PUT", // Using PUT as it updates existing history
+      method: "PUT", // ❌ YOU SEND 'PUT' HERE
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
       credentials: "include",
