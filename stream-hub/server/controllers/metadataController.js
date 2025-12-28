@@ -6,7 +6,6 @@ require("dotenv").config();
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
-// Sleep to prevent rate limiting
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- HELPER: Clean Title ---
@@ -53,7 +52,6 @@ const processItem = async (item) => {
 
             let searchRes = await axios.get(searchUrl);
 
-            // Retry without year if failed
             if (searchRes.data.results.length === 0 && searchYear) {
                 const fallbackUrl = `${TMDB_BASE_URL}/search/${type}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanQuery)}&include_adult=true`;
                 searchRes = await axios.get(fallbackUrl);
@@ -65,7 +63,16 @@ const processItem = async (item) => {
                 item.genre_ids = bestMatch.genre_ids || []; 
                 item.vote_average = bestMatch.vote_average;
                 
-                // Only set basic fields if missing
+                // ✅ FIX: Save Release Date!
+                if (isSeries) {
+                    if (bestMatch.first_air_date) item.first_air_date = bestMatch.first_air_date;
+                } else {
+                    if (bestMatch.release_date) {
+                        item.release_date = bestMatch.release_date;
+                        item.releaseYear = parseInt(bestMatch.release_date.split("-")[0]); // Sync Year
+                    }
+                }
+
                 if (!item.poster_path) item.poster_path = bestMatch.poster_path ? "https://image.tmdb.org/t/p/w500" + bestMatch.poster_path : "";
                 if (!item.backdrop_path) item.backdrop_path = bestMatch.backdrop_path ? "https://image.tmdb.org/t/p/original" + bestMatch.backdrop_path : "";
                 if (!item.overview) item.overview = bestMatch.overview;
@@ -78,17 +85,14 @@ const processItem = async (item) => {
             }
         }
 
-        // --- STEP 2: FETCH FULL DETAILS (Repair + Premium Upgrade) ---
+        // --- STEP 2: FETCH FULL DETAILS ---
         if (item.tmdbId && item.tmdbId !== "MANUAL_CHECK") {
-            
-            // 🔍 CHECK: Treat "Syncing..." text as BAD/EMPTY
             const currentOverview = item.overview ? item.overview.trim() : "";
-            const isPlaceholder = currentOverview === "Syncing metadata..." || currentOverview === "Fetching details..." || currentOverview === "Waiting for sync...";
-            const hasBadOverview = !currentOverview || isPlaceholder;
-
+            const hasBadOverview = !currentOverview || currentOverview === "Syncing metadata..." || currentOverview === "Fetching details...";
             const missingPremium = !item.production_companies || item.production_companies.length === 0;
-            
-            if (hasBadOverview || missingPremium) {
+            const missingDate = isSeries ? !item.first_air_date : !item.release_date; // Check date
+
+            if (hasBadOverview || missingPremium || missingDate) {
                 const type = isSeries ? "tv" : "movie";
                 const append = isSeries ? "keywords,credits,content_ratings" : "keywords,credits,release_dates";
                 const detailUrl = `${TMDB_BASE_URL}/${type}/${item.tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=${append}`;
@@ -97,31 +101,35 @@ const processItem = async (item) => {
                     const detailRes = await axios.get(detailUrl);
                     const details = detailRes.data;
 
-                    // A. Repair Description
                     if (hasBadOverview) {
-                        if (details.overview) {
-                            item.overview = details.overview;
+                        item.overview = details.overview || "";
+                        modified = true;
+                    }
+
+                    // ✅ FIX: Ensure Date is saved on detail refresh
+                    if (isSeries) {
+                        if (details.first_air_date && item.first_air_date !== details.first_air_date) {
+                            item.first_air_date = details.first_air_date;
                             modified = true;
-                        } else if (isPlaceholder) {
-                            // 🌟 STOP THE LOOP: If TMDB has no text, clear the "Syncing..." text so we don't check it again forever
-                            item.overview = ""; 
+                        }
+                    } else {
+                        if (details.release_date && item.release_date !== details.release_date) {
+                            item.release_date = details.release_date;
+                            if (details.release_date) item.releaseYear = parseInt(details.release_date.split("-")[0]);
                             modified = true;
                         }
                     }
 
-                    // B. Regional Info
                     if (!item.original_language || item.original_language !== details.original_language) {
                         item.original_language = details.original_language;
                         modified = true;
                     }
 
-                    // C. Production Companies (Marvel, DC, etc.)
                     if (details.production_companies && (!item.production_companies || item.production_companies.length === 0)) {
                         item.production_companies = details.production_companies.map(c => ({ name: c.name, id: c.id, logo_path: c.logo_path }));
                         modified = true;
                     }
 
-                    // D. Keywords (Moods)
                     if (details.keywords) {
                         const kws = details.keywords.results || details.keywords.keywords;
                         if (kws && (!item.keywords || item.keywords.length === 0)) {
@@ -130,30 +138,22 @@ const processItem = async (item) => {
                         }
                     }
 
-                    // E. Cast & Crew
                     if (details.credits && (!item.credits || !item.credits.cast || item.credits.cast.length === 0)) {
-                    item.credits = {
+                        item.credits = {
                             cast: details.credits.cast.slice(0, 10).map(c => ({ id: c.id, name: c.name, character: c.character, profile_path: c.profile_path })),
                             crew: details.credits.crew.filter(c => ["Director", "Writer", "Executive Producer"].includes(c.job)).slice(0, 5).map(c => ({ id: c.id, name: c.name, job: c.job, profile_path: c.profile_path }))
-                    };
-                    modified = true;
+                        };
+                        modified = true;
                     }
 
-                    // F. 🌟 COLLECTION INFO (Collections)
                     if (!isSeries && details.belongs_to_collection) {
                         const col = details.belongs_to_collection;
                         if (!item.collectionInfo || item.collectionInfo.id !== col.id) {
-                            item.collectionInfo = {
-                                id: col.id,
-                                name: col.name,
-                                poster_path: col.poster_path ? "https://image.tmdb.org/t/p/w500" + col.poster_path : "",
-                                backdrop_path: col.backdrop_path ? "https://image.tmdb.org/t/p/original" + col.backdrop_path : ""
-                            };
+                            item.collectionInfo = { id: col.id, name: col.name, poster_path: col.poster_path ? "https://image.tmdb.org/t/p/w500" + col.poster_path : "", backdrop_path: col.backdrop_path ? "https://image.tmdb.org/t/p/original" + col.backdrop_path : "" };
                             modified = true;
                         }
                     }
 
-                    // G. Content Ratings (Kids Mode)
                     let rating = null;
                     if (isSeries && details.content_ratings) {
                         const usRating = details.content_ratings.results.find(r => r.iso_3166_1 === "US");
@@ -171,7 +171,7 @@ const processItem = async (item) => {
                         modified = true;
                     }
 
-                } catch (e) { /* Ignore detail errors */ }
+                } catch (e) { }
             }
         }
 
@@ -209,7 +209,7 @@ const processItem = async (item) => {
             item.markModified('keywords');
             
             await item.save();
-            return `✅ UPDATED: ${cleanQuery} (Desc: ${item.overview && item.overview !== "" ? "YES" : "EMPTY"})`;
+            return `✅ UPDATED: ${cleanQuery}`;
         }
         return null;
 
@@ -219,8 +219,7 @@ const processItem = async (item) => {
 };
 
 const runBackgroundUpdate = async () => {
-  console.log("🚀 MASTER SYNC STARTED: Fixing descriptions & adding premium data...");
-
+  console.log("🚀 MASTER SYNC STARTED...");
   let processing = true;
   let batchSize = 20; 
   let totalUpdated = 0;
@@ -228,28 +227,18 @@ const runBackgroundUpdate = async () => {
 
   while (processing) {
     try {
-        // 🌟 MASTER CRITERIA: Now catches "Syncing metadata..." explicitly
         const criteria = {
             _id: { $nin: Array.from(processedIds) },
             $or: [
                 { tmdbId: null },
                 { tmdbId: "MANUAL_CHECK" },
-                
-                // 1. Bad Description Checks (Updated)
                 { overview: null },      
                 { overview: "" },        
-                { overview: { $regex: /^\s*$/ } }, 
-                { overview: "Syncing metadata..." }, // 👈 CATCHES THE CULPRIT
-                { overview: "Fetching details..." },
-                { overview: "Waiting for sync..." },
-                
-                // 2. Missing Premium Checks (For new movies)
+                { overview: "Syncing metadata..." },
                 { production_companies: { $exists: false } }, 
-                { production_companies: { $size: 0 } },
-                
-                // 3. Missing Episode Data
-                { "seasons.episodes.still_path": null },
-                { "seasons.episodes.overview": null }
+                // ✅ Catch items missing dates
+                { release_date: null }, 
+                { first_air_date: null }
             ]
         };
 

@@ -10,6 +10,7 @@ export default function Home() {
   const [history, setHistory] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
+  // This comes from App.tsx (handles DetailModal opening)
   const context = useOutletContext<any>();
   const onMovieClick = context?.onMovieClick || (() => {});
 
@@ -17,40 +18,64 @@ export default function Home() {
     const loadContent = async () => {
       setLoading(true);
       try {
-        // ✅ 1. Fetch Optimized Home Content + User History
-        // We now fetch pre-calculated sections from the server (FAST)
+        // 1. Fetch Homepage Data & User Data in parallel
         const [homeRes, userData] = await Promise.all([
           fetchHomeContent(),
-          getMe().catch(() => null)
+          getMe().catch(() => null) // Fail silently if not logged in
         ]);
 
-        // ✅ 2. Set Banner & Sections
+        // 2. Set Banner & Sections from Backend (Fast & Cached)
         if (homeRes) {
             setHeroMovies(homeRes.banner || []);
             setSections(homeRes.sections || []);
         }
 
-        // ✅ 3. Process Personal Watch History
+        // 3. Process Watch History (The Fix)
         if (userData && userData.watchHistory && userData.watchHistory.length > 0) {
             const seenIds = new Set();
             
+            // We need a lookup map for "All Content" to try and find extra details
+            // Flatten the sections to search for matches efficiently
+            const allAvailableContent = homeRes?.sections?.flatMap((s: any) => s.data) || [];
+
             const uniqueHistory = userData.watchHistory
-                .filter((item: any) => {
-                    const idStr = item.contentId.toString();
-                    if (seenIds.has(idStr)) return false;
+                .map((historyItem: any) => {
+                    // Prevent Duplicates
+                    const idStr = historyItem.contentId.toString();
+                    if (seenIds.has(idStr)) return null;
                     seenIds.add(idStr);
-                    return true;
+
+                    // Try to find the full object in the currently loaded content
+                    // This adds extra data like "seasons" if available
+                    const fullContent = allAvailableContent.find((c: any) => c._id === idStr || c.id === idStr);
+
+                    // ✅ FIX: Use stored metadata if full content is missing
+                    // This ensures the row APPEARS even if the movie isn't in the top 150
+                    return {
+                        // Base data from History (Database)
+                        _id: historyItem.contentId,
+                        id: historyItem.contentId,
+                        title: historyItem.title || fullContent?.title,
+                        name: historyItem.title || fullContent?.name, // Handle series naming
+                        poster_path: historyItem.episodePoster || historyItem.poster_path || fullContent?.poster_path,
+                        backdrop_path: fullContent?.backdrop_path || historyItem.poster_path,
+                        
+                        // Type & Logic
+                        type: historyItem.onModel || fullContent?.type || "Movie",
+                        season: historyItem.season,
+                        episode: historyItem.episode,
+                        episodeTitle: historyItem.episodeTitle,
+                        
+                        // Merge in full details (seasons array, overview) ONLY if found
+                        ...(fullContent || {}), 
+
+                        // Display Subtitle for the Card
+                        displaySubtitle: historyItem.season 
+                            ? `S${historyItem.season} E${historyItem.episode}` 
+                            : "Resume"
+                    };
                 })
-                .map((item: any) => ({
-                    ...item,
-                    _id: item.contentId, 
-                    id: item.contentId,
-                    type: item.onModel,
-                    season: item.season,
-                    episode: item.episode,
-                    poster_path: item.episodePoster || item.poster_path,
-                    displaySubtitle: item.season ? `S${item.season} E${item.episode}${item.episodeTitle ? `: ${item.episodeTitle}` : ''}` : "Resume"
-                }));
+                .filter(Boolean); // Remove nulls from duplicate check
 
             setHistory(uniqueHistory);
         }
@@ -76,12 +101,12 @@ export default function Home() {
       {heroMovies.length > 0 && <HeroBanner movies={heroMovies} />}
       <div className="relative z-10 -mt-16 md:-mt-10 space-y-8 pl-4 md:pl-12">
         
-        {/* Continue Watching Row */}
+        {/* ✅ Continue Watching Row */}
         {history.length > 0 && (
             <Row title="Continue Watching" data={history} onMovieClick={onMovieClick} />
         )}
 
-        {/* Pre-calculated Sections from Backend */}
+        {/* Categories from Backend */}
         {sections.map((section, index) => (
           <Row key={index} title={section.title} data={section.data} onMovieClick={onMovieClick} />
         ))}
