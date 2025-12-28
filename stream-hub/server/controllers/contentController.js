@@ -1,9 +1,18 @@
 const Movie = require("../models/Movie");
 const Series = require("../models/Series");
 const Homepage = require("../models/Homepage");
-const Request = require("../models/Request"); // <--- Import New Model
+const Request = require("../models/Request");
 
-// --- HELPER: Sort Series (S1, S2... E1, E2...) ---
+// --- CACHING SETUP ---
+let homeCache = null;
+let lastCacheTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes
+
+// --- HELPER: Lightweight Select Fields ---
+// We exclude heavy fields (credits, embedCode) to make the download instant
+const CARD_FIELDS = "title name poster_path backdrop_path vote_average release_date first_air_date genre_ids original_language overview collectionInfo production_companies keywords content_rating";
+
+// --- HELPER: Sort Series ---
 const sortSeries = (seriesList) => {
   return seriesList.map(series => {
     if (series.seasons && series.seasons.length > 0) {
@@ -18,96 +27,122 @@ const sortSeries = (seriesList) => {
   });
 };
 
-// --- HELPER: Fetch Category (Only items with posters) ---
-const fetchCategory = async (Model, query, limit = 20) => {
-    // Ensure we only show items that are fully synced (have a poster)
-    const filter = { ...query, poster_path: { $ne: null, $ne: "" } };
-    const items = await Model.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
-    return items.map(i => ({ ...i, type: Model.modelName }));
-};
-
-// --- 1. GET PROPER OTT HOME CONTENT ---
+// --- 1. GET OPTIMIZED HOME CONTENT ---
 const getHomeContent = async (req, res) => {
   try {
-    console.log("Fetching OTT Home Content...");
+    // 1. Check Cache (Instant Response)
+    if (homeCache && (Date.now() - lastCacheTime < CACHE_DURATION)) {
+        console.log("🚀 Serving Home Content from Cache");
+        return res.json(homeCache);
+    }
 
-    // 1. Fetch Admin Banner Config
-    let heroSlides = [];
-    try {
-        const config = await Homepage.findOne().populate('bannerItems.contentId');
-        if (config && config.bannerItems?.length > 0) {
-            heroSlides = config.bannerItems
-                .filter(item => item.contentId) // Filter out broken links
-                .map(item => ({ 
-                    ...item.contentId._doc, 
-                    type: item.onModel 
-                }));
-        }
-    } catch (err) { console.error("Banner Error:", err.message); }
+    console.log("🔄 Calculating Home Content (DB Hit)...");
 
-    // 2. Run Parallel Content Queries
+    // 2. Fetch Data in Parallel (Optimized Queries)
+    // We replicate your EXACT frontend filters here using Database Queries
     const [
         latestMovies,
         latestSeries,
-        topRated,
-        action,
-        sciFiMovies,
-        sciFiSeries,
-        comedyMovies,
-        comedySeries,
-        horror,
-        anime
+        marvelMovies,
+        marvelSeries,
+        dcMovies,
+        dcSeries,
+        bollywoodMovies,
+        kDramaSeries,
+        animeMovies,
+        animeSeries,
+        kidsMovies,
+        kidsSeries,
+        collectionItems
     ] = await Promise.all([
-        // A. Latest Uploads
-        fetchCategory(Movie, {}, 20),
-        fetchCategory(Series, {}, 20),
+        // Standard Rows
+        Movie.find({ poster_path: { $ne: null } }).sort({ createdAt: -1 }).limit(20).select(CARD_FIELDS).lean(),
+        Series.find({ poster_path: { $ne: null } }).sort({ createdAt: -1 }).limit(20).select(CARD_FIELDS).lean(),
 
-        // B. Top Rated (Rating > 7.5)
-        Movie.find({ vote_average: { $gte: 7.5 }, poster_path: { $ne: null } }).sort({ vote_average: -1 }).limit(15).lean(),
+        // Marvel (Regex search for 'marvel')
+        Movie.find({ $or: [{ "production_companies.name": /marvel/i }, { "keywords.name": /marvel/i }] }).select(CARD_FIELDS).lean(),
+        Series.find({ $or: [{ "production_companies.name": /marvel/i }, { "keywords.name": /marvel/i }] }).select(CARD_FIELDS).lean(),
 
-        // C. Action Movies (Genre ID: 28)
-        fetchCategory(Movie, { genre_ids: "28" }, 15),
+        // DC
+        Movie.find({ $or: [{ "production_companies.name": /dc entertainment|dc comics/i }, { "keywords.name": /dc comics/i }] }).select(CARD_FIELDS).lean(),
+        Series.find({ $or: [{ "production_companies.name": /dc entertainment|dc comics/i }, { "keywords.name": /dc comics/i }] }).select(CARD_FIELDS).lean(),
 
-        // D. Sci-Fi (Movie: 878, Series: 10765)
-        fetchCategory(Movie, { genre_ids: "878" }, 10),
-        fetchCategory(Series, { genre_ids: "10765" }, 10),
+        // Regional
+        Movie.find({ original_language: "hi" }).select(CARD_FIELDS).lean(),
+        Series.find({ original_language: "ko" }).select(CARD_FIELDS).lean(),
 
-        // E. Comedy (Genre ID: 35)
-        fetchCategory(Movie, { genre_ids: "35" }, 10),
-        fetchCategory(Series, { genre_ids: "35" }, 10),
+        // Anime (Japanese + Animation genre OR 'anime' keyword)
+        Movie.find({ original_language: "ja", $or: [{ genre_ids: "16" }, { "keywords.name": "anime" }] }).select(CARD_FIELDS).lean(),
+        Series.find({ original_language: "ja", $or: [{ genre_ids: "16" }, { "keywords.name": "anime" }] }).select(CARD_FIELDS).lean(),
 
-        // F. Horror (Genre ID: 27)
-        fetchCategory(Movie, { genre_ids: "27" }, 15),
+        // Kids (Exclude Adult, Include Family/Animation/Kids keywords)
+        Movie.find({ 
+            content_rating: { $nin: ["R", "TV-MA"] },
+            $or: [{ genre_ids: { $in: ["10751", "16"] } }, { "keywords.name": /cartoon|kids|children/i }] 
+        }).select(CARD_FIELDS).lean(),
+        Series.find({ 
+            content_rating: { $nin: ["R", "TV-MA"] },
+            $or: [{ genre_ids: { $in: ["10751", "16"] } }, { "keywords.name": /cartoon|kids|children/i }] 
+        }).select(CARD_FIELDS).lean(),
 
-        // G. Animation/Anime (Genre ID: 16)
-        fetchCategory(Series, { genre_ids: "16" }, 15)
+        // Dynamic Collections (Any item with collectionInfo)
+        Movie.find({ "collectionInfo.name": { $exists: true, $ne: null } }).select(CARD_FIELDS).lean()
     ]);
 
-    // 3. Fallback Banner if Admin didn't set one
-    if (heroSlides.length === 0) {
-        heroSlides = topRated.slice(0, 5).map(m => ({ ...m, type: "Movie" }));
-    }
+    // 3. Process & Merge Data
+    const normalize = (items, type) => items.map(i => ({ ...i, type }));
 
-    // 4. Combine Mixed Categories
-    const sciFiContent = [...sciFiMovies, ...sciFiSeries].sort(() => 0.5 - Math.random());
-    const comedyContent = [...comedyMovies, ...comedySeries].sort(() => 0.5 - Math.random());
+    // Merge Series & Movies for sections
+    const marvelContent = [...normalize(marvelMovies, "Movie"), ...normalize(marvelSeries, "Series")];
+    const dcContent = [...normalize(dcMovies, "Movie"), ...normalize(dcSeries, "Series")];
+    const animeContent = [...normalize(animeMovies, "Movie"), ...normalize(animeSeries, "Series")];
+    
+    // Filter Kids content (Exclude Anime from Kids section if overlapping)
+    const rawKids = [...normalize(kidsMovies, "Movie"), ...normalize(kidsSeries, "Series")];
+    const animeIds = new Set(animeContent.map(a => a._id.toString()));
+    const pureKids = rawKids.filter(k => !animeIds.has(k._id.toString()));
 
-    // 5. Structure Response
-    const responseData = {
-        banner: heroSlides,
-        sections: [
-            { title: "Latest Movies", data: latestMovies },
-            { title: "New Episodes", data: sortSeries(latestSeries) },
-            { title: "Top Rated Hits", data: topRated.map(m => ({...m, type:"Movie"})) },
-            { title: "Action Blockbusters", data: action },
-            { title: "Sci-Fi & Fantasy", data: sciFiContent },
-            { title: "Comedy Club", data: comedyContent },
-            { title: "Bone Chilling Horror", data: horror },
-            { title: "Anime World", data: sortSeries(anime) },
-        ]
+    // Build Dynamic Collections (e.g., "Avengers Collection")
+    const collections = {};
+    collectionItems.forEach(item => {
+        if (item.collectionInfo?.name) {
+            const key = item.collectionInfo.name.replace(" Collection", "");
+            if (!collections[key]) collections[key] = [];
+            collections[key].push({ ...item, type: "Movie" });
+        }
+    });
+
+    // 4. Construct Sections (Order matters!)
+    const sections = [];
+
+    if (marvelContent.length > 0) sections.push({ title: "Marvel Universe", data: marvelContent });
+    if (dcContent.length > 0) sections.push({ title: "DC Multiverse", data: dcContent });
+    if (bollywoodMovies.length > 0) sections.push({ title: "Bollywood Hits 🇮🇳", data: normalize(bollywoodMovies, "Movie") });
+    if (kDramaSeries.length > 0) sections.push({ title: "K-Drama & Korean Hits 🇰🇷", data: normalize(kDramaSeries, "Series") });
+    if (animeContent.length > 0) sections.push({ title: "Anime World 🇯🇵", data: animeContent });
+    if (pureKids.length > 0) sections.push({ title: "Kids & Family 🎈", data: pureKids });
+
+    // Add Dynamic Collections
+    Object.keys(collections).sort().forEach(key => {
+        if (collections[key].length > 2) {
+            sections.push({ title: `${key} Collection`, data: collections[key] });
+        }
+    });
+
+    // Add Standard Rows
+    if (latestMovies.length > 0) sections.push({ title: "Latest Movies", data: normalize(latestMovies, "Movie") });
+    if (latestSeries.length > 0) sections.push({ title: "New Episodes", data: normalize(sortSeries(latestSeries), "Series") });
+
+    const payload = {
+        banner: normalize(latestMovies.slice(0, 6), "Movie"), // Top 6 movies as banner
+        sections
     };
 
-    res.json(responseData);
+    // 5. Save to Cache
+    homeCache = payload;
+    lastCacheTime = Date.now();
+
+    res.json(payload);
 
   } catch (error) {
     console.error("Home Content Error:", error);
@@ -115,38 +150,42 @@ const getHomeContent = async (req, res) => {
   }
 };
 
-// --- 2. GET ALL MOVIES ---
+// --- 2. GET ALL MOVIES (Optimized) ---
 const getMovies = async (req, res) => {
   try {
-    const movies = await Movie.find().sort({ createdAt: -1 }).lean();
+    // Only select what we need for the grid, NOT the whole object
+    const movies = await Movie.find()
+        .sort({ createdAt: -1 })
+        .select(CARD_FIELDS) 
+        .lean();
     res.json(movies.map(m => ({ ...m, type: "Movie" })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// --- 3. GET ALL SERIES ---
+// --- 3. GET ALL SERIES (Optimized) ---
 const getSeries = async (req, res) => {
   try {
-    let series = await Series.find().sort({ createdAt: -1 }).lean();
-    series = sortSeries(series);
+    let series = await Series.find()
+        .sort({ createdAt: -1 })
+        .select(CARD_FIELDS)
+        .lean();
     res.json(series.map(s => ({ ...s, type: "Series" })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// --- 4. SEARCH FUNCTION ---
+// --- 4. SEARCH FUNCTION (Optimized) ---
 const searchContent = async (req, res) => {
   const { query } = req.query;
   if (!query) return res.json([]);
 
   try {
     const regex = new RegExp(query, "i");
-    const movies = await Movie.find({ title: regex }).lean();
-    let series = await Series.find({ name: regex }).lean();
-
-    series = sortSeries(series);
+    const movies = await Movie.find({ title: regex }).select(CARD_FIELDS).lean();
+    const series = await Series.find({ name: regex }).select(CARD_FIELDS).lean();
 
     const results = [
       ...movies.map(m => ({ ...m, type: "Movie" })),
@@ -159,7 +198,7 @@ const searchContent = async (req, res) => {
   }
 };
 
-// --- 5. NEW: REQUEST CONTENT ---
+// --- 5. REQUEST CONTENT ---
 const requestContent = async (req, res) => {
   try {
     const { title, year, platform } = req.body;

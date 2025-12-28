@@ -18,7 +18,7 @@ export const registerUser = async (userData: any) => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData),
-    credentials: "include", // ✅ Required for Cookies
+    credentials: "include",
   });
   if (!res.ok) throw await res.json();
   return res.json();
@@ -29,7 +29,7 @@ export const loginUser = async (userData: any) => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData),
-    credentials: "include", // ✅ Required for Cookies
+    credentials: "include",
   });
   if (!res.ok) throw await res.json();
   return res.json();
@@ -38,7 +38,7 @@ export const loginUser = async (userData: any) => {
 export const logoutUser = async () => {
   const res = await fetch(`${API_URL}/auth/logout`, {
     method: "POST",
-    credentials: "include", // ✅ Required for Cookies
+    credentials: "include",
   });
   return res.json();
 };
@@ -46,20 +46,20 @@ export const logoutUser = async () => {
 export const getMe = async () => {
   const res = await fetch(`${API_URL}/auth/me`, {
     method: "GET",
-    credentials: "include", // ✅ Required for Cookies
+    credentials: "include",
   });
   if (!res.ok) throw new Error("Not authorized");
   return res.json();
 };
 
-// ✅ NEW: Update Watch History
+// ✅ UPDATE WATCH HISTORY (Progress Tracking)
 export const updateWatchHistory = async (data: any) => {
   try {
     const res = await fetch(`${API_URL}/auth/history`, {
-      method: "POST",
+      method: "PUT", // Using PUT as it updates existing history
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
-      credentials: "include", 
+      credentials: "include",
     });
     return await res.json();
   } catch (error) {
@@ -85,7 +85,7 @@ export const fetchMovies = async (page = 1, limit = 24) => {
   try {
     const res = await fetch(`${API_URL}/content/movies?page=${page}&limit=${limit}`);
     const json = await res.json();
-    return normalize(json); 
+    return normalize(json);
   } catch (error) {
     console.error("Failed to fetch movies", error);
     return { data: [], totalPages: 0 };
@@ -190,6 +190,31 @@ export const updateRequestStatus = async (id: string, status: string) => {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
+    credentials: "include",
+  });
+  return res.json();
+};
+
+// ==========================================
+// 📝 SUBTITLE API (NEW)
+// ==========================================
+
+export const searchSubtitles = async (tmdbId: string, season?: number, episode?: number, language: string = "en") => {
+  const query = new URLSearchParams({ tmdbId, language });
+  if (season) query.append("season", season.toString());
+  if (episode) query.append("episode", episode.toString());
+
+  const res = await fetch(`${API_URL}/subtitles/search?${query.toString()}`, {
+    credentials: "include",
+  });
+  return res.json();
+};
+
+export const addSubtitle = async (data: { fileId: number; videoId: string; name: string; language: string; format: string }) => {
+  const res = await fetch(`${API_URL}/subtitles/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
     credentials: "include",
   });
   return res.json();
