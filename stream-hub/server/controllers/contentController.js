@@ -9,8 +9,8 @@ let lastCacheTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes
 
 // --- HELPER: Lightweight Select Fields ---
-// ✅ FIX: Added 'fileCode' and 'embedCode' so the player works!
-const CARD_FIELDS = "title name poster_path backdrop_path vote_average release_date first_air_date genre_ids original_language overview collectionInfo production_companies keywords content_rating fileCode embedCode tmdbId";
+// ✅ FIX: Added 'seasons' (for episodes) and 'downloadLink' (for buttons)
+const CARD_FIELDS = "title name poster_path backdrop_path vote_average release_date first_air_date genre_ids original_language overview collectionInfo production_companies keywords content_rating fileCode embedCode tmdbId downloadLink seasons";
 
 // --- HELPER: Sort Series ---
 const sortSeries = (seriesList) => {
@@ -147,7 +147,7 @@ const getMovies = async (req, res) => {
   try {
     const movies = await Movie.find()
         .sort({ createdAt: -1 })
-        .select(CARD_FIELDS) // ✅ Includes embedCode now
+        .select(CARD_FIELDS) // ✅ Includes seasons/downloadLink
         .lean();
     res.json(movies.map(m => ({ ...m, type: "Movie" })));
   } catch (error) {
@@ -160,7 +160,7 @@ const getSeries = async (req, res) => {
   try {
     let series = await Series.find()
         .sort({ createdAt: -1 })
-        .select(CARD_FIELDS) // ✅ Includes embedCode now
+        .select(CARD_FIELDS) // ✅ Includes seasons/downloadLink
         .lean();
     res.json(series.map(s => ({ ...s, type: "Series" })));
   } catch (error) {
