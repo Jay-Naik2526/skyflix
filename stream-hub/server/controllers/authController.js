@@ -15,8 +15,8 @@ const getCookieOptions = () => {
   return {
     httpOnly: true,
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: isProduction, // ✅ Must be TRUE in production (HTTPS)
-    sameSite: isProduction ? 'None' : 'Lax' // ✅ Must be NONE for cross-domain auth
+    secure: isProduction, 
+    sameSite: isProduction ? 'None' : 'Lax'
   };
 };
 
@@ -35,7 +35,6 @@ exports.register = async (req, res) => {
     
     if (user) {
       const token = generateToken(user._id);
-      // ✅ FIX: Use secure cookie settings
       res.cookie('token', token, getCookieOptions()).status(201).json(user);
     } else {
       res.status(400).json({ message: "Invalid user data" });
@@ -53,7 +52,6 @@ exports.login = async (req, res) => {
     
     if (user && (await bcrypt.compare(password, user.password))) {
       const token = generateToken(user._id);
-      // ✅ FIX: Use secure cookie settings
       res.cookie('token', token, getCookieOptions()).json(user);
     } else {
       res.status(400).json({ message: "Invalid credentials" });
@@ -64,14 +62,14 @@ exports.login = async (req, res) => {
   }
 };
 
+// ⚡ OPTIMIZATION: Removed redundant Database Call
 exports.getMe = async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select("-password").lean();
-    if (!user) return res.status(404).json({ message: "User not found" });
-    res.json(user);
-  } catch (error) { 
-    res.status(401).json({ message: "Not authorized" }); 
+  // The 'protect' middleware already fetched the user and attached it to req.user
+  if (!req.user) {
+      return res.status(401).json({ message: "Not authorized" });
   }
+  // Return the user directly from memory
+  res.status(200).json(req.user);
 };
 
 exports.updateHistory = async (req, res) => {
@@ -92,7 +90,6 @@ exports.updateHistory = async (req, res) => {
 
         if (!contentMetadata) return res.status(404).json({ message: "Content not found" });
 
-        // ✅ Precise Metadata Extraction (Preserving your logic)
         let displayPoster = contentMetadata.poster_path;
         let epTitle = "";
         let epStill = "";
@@ -124,12 +121,10 @@ exports.updateHistory = async (req, res) => {
             lastWatched: new Date()
         };
 
-        // ✅ Deduplication
         await User.findByIdAndUpdate(userId, {
             $pull: { watchHistory: { contentId: new mongoose.Types.ObjectId(contentId) } }
         });
 
-        // ✅ Push to top
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             {
@@ -152,7 +147,6 @@ exports.updateHistory = async (req, res) => {
 };
 
 exports.logout = async (req, res) => {
-  // ✅ FIX: Clear cookie with same secure settings
   res.cookie('token', '', { 
       httpOnly: true, 
       expires: new Date(0),

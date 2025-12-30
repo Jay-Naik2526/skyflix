@@ -6,12 +6,10 @@ const Request = require("../models/Request");
 // --- CACHING SETUP ---
 let homeCache = null;
 let lastCacheTime = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes
+// ⚡ OPTIMIZATION: Increased cache duration to 1 Hour (60 mins)
+const CACHE_DURATION = 60 * 60 * 1000; 
 
 // --- HELPER: Selected Fields ---
-// ✅ ADDED: 'releaseYear' (Requested)
-// ✅ KEPT: 'vote_average' (IMDb Rating), 'downloadLink', 'seasons'
-// ❌ EXCLUDED: 'credits' (Heavy data), 'createdAt', 'updatedAt'
 const CARD_FIELDS = "title name poster_path backdrop_path vote_average release_date releaseYear first_air_date genre_ids original_language overview collectionInfo production_companies keywords content_rating fileCode embedCode tmdbId downloadLink seasons createdAt";
 
 // --- HELPER: Sort Series ---
