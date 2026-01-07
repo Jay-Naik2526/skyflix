@@ -1,18 +1,9 @@
-# Use Node 20 as the base image
-FROM node:20
-
-# Create app directory
-WORKDIR /usr/src/app
-
-# Copy package files and install dependencies
+FROM node:20-slim
+WORKDIR /app
 COPY package*.json ./
-RUN npm install
-
-# Copy the rest of your server code
+RUN npm install --production
 COPY . .
-
-# Match the port in your index.js (5000)
-EXPOSE 5000
-
-# Start the server
+# HF Spaces use port 7860
+EXPOSE 7860
+ENV PORT=7860
 CMD ["node", "index.js"]
