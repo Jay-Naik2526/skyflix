@@ -1,8 +1,8 @@
 ---
-title: Skyflix API
+title: SkyFlix API
 emoji: 🎬
 colorFrom: red
-colorTo: black
+colorTo: gray
 sdk: docker
 pinned: false
 ---
