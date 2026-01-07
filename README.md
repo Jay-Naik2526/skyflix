@@ -1,3 +1,11 @@
+---
+title: Skyflix API
+emoji: 🎬
+colorFrom: red
+colorTo: black
+sdk: docker
+pinned: false
+---
 # 🎬 SkyFlix
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
